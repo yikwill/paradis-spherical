@@ -29,8 +29,8 @@ class SphericalConv(nn.Module):
         if self.cpu_depthwise:
             # Register the op before torch.compile traces the forward method.
             from model import disco_cpu
-        # Sort once by output latitude for the direct depthwise CPU contraction.
-        order = torch.argsort(self.conv.psi_row_idx, stable=True)
+        # Sort by output latitude and input point to fold overlapping basis contributions.
+        order = torch.argsort(self.conv.psi_row_idx * (mesh_size[0] * mesh_size[1]) + self.conv.psi_col_idx, stable=True)
         counts = torch.bincount(self.conv.psi_row_idx, minlength=mesh_size[0])
         self.register_buffer("rowptr", torch.cat([counts.new_zeros(1), counts.cumsum(0)]), persistent=False)
         self.register_buffer("kernel", self.conv.psi_ker_idx[order].contiguous(), persistent=False)

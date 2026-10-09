@@ -1,0 +1,212 @@
+model:
+  latent_size: 64
+  forecast_steps: 1
+  base_dt: 21600
+  num_layers: 2
+  spatial_conv: disco
+  static_latent_size: 32
+  static_hidden_size: 32
+  bias_channels: 0
+  velocity_vectors: 32
+  adv_interpolation: bicubic
+  activation: SiLU
+  coarsening_factor: 2
+  val_forecast_steps: 1
+  physblock:
+    input_proj:
+      layers:
+      - CLinear
+      hidden_dim: 0
+    velocity_net:
+      layers:
+      - CLinear
+      - SepConv
+      hidden_dim: 64
+    diffusion:
+      layers:
+      - SepConv
+      hidden_dim: 0
+    reaction:
+      layers:
+      - CLinear
+      - CLinear
+      - CLinear
+      - CLinear
+      hidden_dim: 64
+    output_proj:
+      layers:
+      - CLinear
+      - CLinear
+      - CLinear
+      hidden_dim: 64
+    advection:
+      down_projection:
+        layers:
+        - SepConv
+        hidden_dim: 0
+      up_projection:
+        layers:
+        - CLinear
+        hidden_dim: 0
+init:
+  seed: 42
+  checkpoint_path: null
+  restart: false
+dataset:
+  preload_max_gb: 64
+  root_dir: /home/yikwill/paradis-data
+  time_resolution: 6h
+  n_time_inputs: 2
+  sampling_interval: 6h
+  prediction_delta: 6h
+normalization:
+  standard: true
+compute:
+  threads: 4
+  num_nodes: 1
+  num_devices: 1
+  accelerator: cpu
+  use_amp: false
+  batch_size: 1
+  num_workers: 0
+  val_num_workers: 0
+  compile: true
+  gradient_checkpointing: false
+forecast:
+  enable: false
+  start_date: '2019-12-31'
+  end_date: null
+  output_frequency: 1
+  output_file: null
+  write_every_n: 1
+training:
+  max_epochs: -1
+  max_steps: 2000
+  progress_bar: true
+  gradient_clip_val: null
+  print_losses: false
+  log_every_n_steps: 100
+  log_dir: logs/weather
+  experiment_name: disco
+  log_additional_stats: false
+  accumulate_grad_batches: 1
+  dataset:
+    start_date: '2016-01-01'
+    end_date: '2016-12-31T18:00:00'
+    preload: true
+  validation_dataset:
+    start_date: '2017-01-01'
+    end_date: '2017-01-31T18:00:00'
+    preload: true
+    validation_every_n_steps: 200
+    validation_batches: null
+  optimizer:
+    name: adamw
+    lr: 0.0005
+    weight_decay: 0.01
+    beta1: 0.9
+    beta2: 0.95
+    detach_gradient_every: null
+  early_stopping:
+    enabled: false
+    patience: 8
+  loss_function:
+    type: reversed_huber
+    delta_loss: 1.0
+    lat_weights: true
+    validation_loss: null
+  checkpointing:
+    enabled: true
+  scheduler:
+    one_cycle:
+      enabled: false
+      warmup_pct_start: 0.0
+      lr_div_factor: 1
+      lr_final_div: 100
+    reduce_lr:
+      enabled: false
+      factor: 0.75
+      patience: 3
+      threshold: 0.0001
+      threshold_mode: rel
+      min_lr: 1.0e-07
+    wsd:
+      enabled: true
+      warmup: 20
+      decay: 0.2
+  variable_loss_weights:
+    atmospheric:
+      wind_x: 1.0
+      wind_y: 1.0
+      wind_z: 1.0
+      geopotential: 1.0
+      specific_humidity: 1.0
+      temperature: 1.0
+      vertical_velocity: 0.1
+    surface:
+      wind_x_10m: 1.0
+      wind_y_10m: 1.0
+      wind_z_10m: 1.0
+      2m_temperature: 1.0
+      mean_sea_level_pressure: 1.0
+      total_precipitation_6hr: 1.0
+  reports:
+    enable: false
+    features: []
+features:
+  pressure_levels:
+  - 50
+  - 100
+  - 150
+  - 200
+  - 250
+  - 300
+  - 400
+  - 500
+  - 600
+  - 700
+  - 850
+  - 925
+  - 1000
+  input:
+    atmospheric:
+    - geopotential
+    - wind_x
+    - wind_y
+    - wind_z
+    - specific_humidity
+    - temperature
+    surface:
+    - wind_x_10m
+    - wind_y_10m
+    - wind_z_10m
+    - 2m_temperature
+    - mean_sea_level_pressure
+    forcings:
+    - toa_incident_solar_radiation
+    - sin_time_of_day
+    - cos_time_of_day
+    - sin_year_progress
+    - cos_year_progress
+    constants:
+    - geopotential_at_surface
+    - land_sea_mask
+    - slope_of_sub_gridscale_orography
+    - standard_deviation_of_orography
+    - sin_latitude
+  output:
+    atmospheric:
+    - geopotential
+    - wind_x
+    - wind_y
+    - wind_z
+    - specific_humidity
+    - temperature
+    - vertical_velocity
+    surface:
+    - wind_x_10m
+    - wind_y_10m
+    - wind_z_10m
+    - 2m_temperature
+    - mean_sea_level_pressure
+    - total_precipitation_6hr

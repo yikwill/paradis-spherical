@@ -196,3 +196,66 @@ are outside the 12-hour CPU experiment budget; four GPU-hours remain reserved.
 - Consider finalphysicalevaluation also computing aggregatevalidationloss and
   comparing against loggedfinalscore to confirm newkernel/compiled-vs-eager effects
   on trained checkpoints are negligible. Do not claim trainingusednewkernel.
+
+## Checkpoint 2026-10-09 01:55 UTC
+
+- Committed residual baseline/evaluation as `7a7b107`. Native model/trainer code is
+  still identical to58f5fbf; foldedkernel notyetadopted. Wait untilweatherDISCOhas
+  constructed before changinglazyCPUmodulefiles (see priorcheckpoint).
+- Extended tests/check_distributed.py to autoregressive2/truncate1 and3/truncate2,
+  with accumulation2, validation/checkpointing overepochs. Both2ranktests PASS;
+  log `/tmp/paradis-ddp-ar.log`, session57716complete. No trainer changes needed.
+- evaluate_weather nowalso re-evaluates aggregatevalidationloss and assertsclose
+  tologgedfinalscore (rtol1e-5/atol1e-7), toverifynewkernel/eagermodeoncheckpoints.
+  tests/check_weather_metrics stillpasses (session12739complete).
+- Added `experiments/tune_grouped.py` (NOT RUN YET): permanentseeded interleaved
+  old-vs-foldedkernel test. It retrievesoldC++from58f5fbf, compilesunderseparatenamespace,
+  thenusescurrentmodelkernel. RunonlyAFTERadoption; otherwiseitwouldcompareoldtoold.
+- Finalstagecontroller is NOW session1927, `/tmp/paradis-final-stage.py`, same log.
+  It additionally waits for `report/results/folded-kernel-checks.json` (mustcreate
+  onlyafterfoldedadoptionandmodel/fit/compilechecksPASS), and runs permanentgrouped
+  tuning FIRST inisolation, thenbenchmark/data/RSS/quality/figures/latexasbefore.
+- Benchmark nowrecords Gitrevision, CPUaffinity, and SHA256ofmodel/trainer/loss/driver
+  sources. This edit iscurrentlyuncommitted. Report alsoincludeswarmupdiagnosticmap,
+  explicitlylistsPARADIStracer+sinlat vsU-Nettraceronly, and retainsallprotocols.
+- Weatherconv2d1400updates, val0.12125. PARADISidentitywarmup~291updates withMSE
+  7.2e-7, abouttoenterangularramp. ResidualUNetwarmup~211updatesMSE2.7e-5.
+
+## Automatic staging queued, 2026-10-09 02:05 UTC
+
+- `/tmp/paradis-adopt-folded.py` is now running as session94249, log
+  `/tmp/paradis-adopt-folded.log`, CPUs4-7. It waits for the first DISCOweather
+  metricsrow (not justconstruction), verifiesnativefilesunchanged, then ATOMICALLY
+  installs candidateC++underoriginalopnamespace, changesextensioncacheto_v2, and
+  sortsSphericalConvstencilsby(row,column). DO NOT manuallyeditthesethreefiles while
+  thisguardedscriptwaits; itwillabortifchanged. AllactiveDISCOprocesseswillalready
+  havev1loaded; theircode/librariesremainstable.
+- Afteradoption itrenamescompile-tuning.json tocompile-tuning-v1.json, runs
+  check_model/check_fit/tune_compile/check_forecast/check_port into
+  `/tmp/paradis-folded-check-{0..4}.log`, andonlyonALLsuccesswrites
+  report/results/folded-kernel-checks.json. Ifitfails, inspect/fixbeforeresumingfinal
+  stage. No commit/pushisautomatic. Finalstage session1927waits forthisflag+allruns.
+- Reportdraftnowexplainssource-revisiondistinction andkernelcoefficientfolding;
+  generatorwillproducekernel-table.texfromfinalisolatedtune_groupedresults.
+- Weatherconv2d1700updates (~02:02UTC), nextbackendprobably~02:12UTC. TracerPARADIS
+  warmupisnowramping andkeepsMSE~2.5e-5 at8degrees. ResidualU-Netwarmup~291updates.
+
+## Folded kernel verified, 2026-10-09 02:20 UTC
+
+- The guarded adoption completed after DISCO weather training had loaded version
+  one. All five checks passed: operator/model/resume, fit interruption, compiled
+  outputs and gradients, real-data forecasting, and the unchanged upstream port.
+  `report/results/folded-kernel-checks.json` records source hashes and check times.
+- A separate full-model longitude regression passes for coarsening-aligned shifts
+  in both backends (maximum absolute error below 2e-7). DISCO operators enforce
+  scalar pole rows, but inherited local pooling does not preserve this property
+  throughout the full model. The report now states this limitation explicitly.
+- Conv2d weather completed 2,000 updates, final validation loss 0.11407607.
+  DISCO is running with the original loaded kernel. Final checkpoint evaluation
+  will verify that the folded implementation reproduces the logged scores.
+- Fixed-target PARADIS completed 500 updates with relative MSE 0.93464; the plain
+  U-Net identity/ramp run and residual U-Net ramp run ended near the constant
+  baseline. Identity-first PARADIS is still tracking its ramp at about 20 degrees.
+- The report generator now enumerates the nine intended runs, avoiding accidental
+  interpretation of its generated tracer-baselines.json as a training history.
+  Full figure/PDF generation remains queued after all runs and isolated timing.

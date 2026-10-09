@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from torch.utils.cpp_extension import load
 
-load(name="paradis_disco_cpu", sources=[str(Path(__file__).with_suffix(".cpp"))],
+load(name="paradis_disco_cpu_v2", sources=[str(Path(__file__).with_suffix(".cpp"))],
      extra_cflags=["-O3", "-march=native", "-ffast-math", "-funroll-loops", "-fopenmp"],
      extra_ldflags=["-fopenmp"], is_python_module=False)
 

@@ -71,13 +71,13 @@ Check & Verified result \\
 \midrule
 Unchanged upstream port & Two autoregressive steps, two accumulated batches: maximum output, loss, gradient, and AdamW-update error all zero. \\
 DISCO CPU contraction & Matches the library operator and first gradients; float64 reference error about $10^{-15}$; finite-difference input gradient passes. \\
-Spherical geometry & Longitude-roll equivariance, scalar pole rows, and total quadrature weight $4\pi$. \\
+Spherical geometry & DISCO operator longitude shifts, scalar pole rows, and total quadrature weight $4\pi$; full-model shifts aligned with coarsening. \\
 Architecture & All nine spatial convolutions in the two-block compact model replaced; only $1\times1$ Conv2d layers remain in DISCO mode; no learned spatial bias factors. \\
 Static-feature reuse & Losses and parameter gradients match recomputation for truncation lengths 1, 2, and 3. \\
 Checkpoint continuation & Bitwise agreement for both backends; actual fit-loop interruption/resume crosses an epoch boundary. \\
 Data and loss & Complete-window split isolation, one/two-frame order, normalization and cache immutability; all 97 named loss weights. \\
 Native execution & Two CPU ranks with accumulation, validation and checkpointing; real ERA5 forecast to incremental Zarr, including horizon changes and lead-time coordinates. \\
-Compilation & Full weather-shaped output and gradient checks pass before enabling compilation; output error below $5\times10^{-7}$. \\
+Compilation & Full weather-shaped outputs and parameter gradients agree within the recorded tolerances before enabling compilation. \\
 \bottomrule
 \end{tabular}
 \caption{Runnable checks are in \texttt{tests/}; compilation checks are in \texttt{experiments/tune\_compile.py}. These are scoped checks, not evidence of untested GPU behavior.}
@@ -103,7 +103,10 @@ $k\Delta\phi/2$. Grids include both latitude poles, use an even periodic longitu
 count, and preserve these conditions through coarsening. The adapter reverses the
 south-to-north data convention for the library and averages scalar pole values.
 These checks establish the implemented longitude symmetry; they do not establish
-full rotation equivariance of the weather model.
+full rotation equivariance of the weather model. Scalar pole averaging is an
+operator property: inherited local average pooling can reintroduce longitude
+variation at the full model's pole outputs. This limitation is recorded in the
+full-model diagnostic; the pooling rule is retained for the upstream comparison.
 
 Profiling identified basis-expanded depthwise activations and copies as a CPU
 bottleneck. A small C++ operator directly contracts the same quadrature stencil,
@@ -120,6 +123,35 @@ fusion and channels-last layout were evaluated and did not consistently improve 
 shapes, so they remain disabled. Compilation was retained for the paired weather
 runs after numerical checks. Its initial cost was 164--265 seconds in the pilot and
 is reported separately from warmed latency.
+
+A subsequent CPU optimization folds overlapping basis contributions for each
+input point before applying them to the longitude vector:
+\[
+ \sum_{k,j} w_{ck}\psi_{khj}x_{cj}
+ =\sum_j\left(\sum_k w_{ck}\psi_{khj}\right)x_{cj}.
+\]
+This removes repeated activation reads and reuses the same dot product for weight
+gradients. The prototype matched values and first gradients before adoption;
+full-model, resume, forecast, and compilation checks were then repeated. The
+training processes retained the first direct kernel already loaded in memory.
+Final performance measurements and checkpoint re-evaluation use the folded kernel;
+source hashes and this revision distinction are preserved in the result files.
+Aggregate checkpoint scores are checked against the original logged validation
+losses to bound the numerical effect on the reported weather results.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{lrrr}
+\toprule
+Kernel shape & First direct kernel (ms) & Folded kernel (ms) & Speedup \\
+\midrule
+\input{results/kernel-table.tex}
+\bottomrule
+\end{tabular}
+\caption{Final interleaved C++ forward-plus-backward microbenchmarks, four CPU
+threads. The $17\times32$ check uses float64 and batch 2; weather shapes use
+float32 and batch 1. Kernel speedups are not whole-model speedups.}
+\end{table}
 
 \section{Tracer reconstruction}
 The grid contains 721 latitudes and 1,440 longitudes. The initial tracer is an
@@ -140,7 +172,8 @@ relative MSE \ConstantRatio. Reaching this baseline, even with accurate total
 mass, does not demonstrate localization or transport of the Gaussian.
 
 The compact full PARADIS has 8 latent, 4 transported, and 8 static channels, two
-processor blocks, and spatial coarsening by 2. A depth-three U-Net with top width 4
+processor blocks, and spatial coarsening by 2. It receives the tracer and sine of
+latitude; the U-Net receives the tracer alone. A depth-three U-Net with top width 4
 is reconstructed from the paper's Figure 19: an entry convolution followed by a
 normalized two-convolution residual block at each level. The chosen $3\times3$
 kernels, upstream ChannelNorm, unit residual scale, average pooling, and bilinear
@@ -185,6 +218,15 @@ training target in degrees; a time-capped run may not reach $68^\circ$.}
 \caption{Tracer optimization histories and the actual target angle at each update.
 Losses during continuation refer to the moving training target; final table errors
 always use the $68^\circ$ target.}
+\end{figure}
+
+\begin{figure}[p]
+\centering\includegraphics[width=\linewidth]{figures/tracer-continuation-identity300.pdf}
+\caption{Separate identity-warmup and angular-continuation diagnostic, using the
+same display scale as the fixed-target figure. Training starts at zero displacement,
+then increases it toward $68^\circ$. This explicitly modified optimization protocol
+tests whether the full architecture can track transport after learning the field
+representation; it is not an exact repetition of the paper's fixed-angle procedure.}
 \end{figure}
 
 \section{Partial weather comparison}

@@ -1,0 +1,53 @@
+{
+  "status": "passed",
+  "checks": [
+    {
+      "command": [
+        "tests.check_model"
+      ],
+      "seconds": 93.83925127703696,
+      "log": "/tmp/paradis-folded-check-0.log",
+      "status": "passed"
+    },
+    {
+      "command": [
+        "tests.check_fit"
+      ],
+      "seconds": 24.959167192981113,
+      "log": "/tmp/paradis-folded-check-1.log",
+      "status": "passed"
+    },
+    {
+      "command": [
+        "experiments.tune_compile"
+      ],
+      "seconds": 203.8619168390287,
+      "log": "/tmp/paradis-folded-check-2.log",
+      "status": "passed"
+    },
+    {
+      "command": [
+        "tests.check_forecast"
+      ],
+      "seconds": 84.73938067199197,
+      "log": "/tmp/paradis-folded-check-3.log",
+      "status": "passed"
+    },
+    {
+      "command": [
+        "tests.check_port",
+        "/tmp/paradis-upstream-port-final.pt",
+        "/home/yikwill/paradis-upstream"
+      ],
+      "seconds": 20.048256558016874,
+      "log": "/tmp/paradis-folded-check-4.log",
+      "status": "passed"
+    }
+  ],
+  "source_sha256": {
+    "model/disco_cpu.cpp": "2b85bc826d132dc275570312f93d64820c2bd77d9cf410ac030d6435a1f0a50f",
+    "model/disco_cpu.py": "03cd5000aa702baf4762399bb7b445bec742cca31e07d0ac47b4f048d0e73225",
+    "model/spherical.py": "094999f5a98064e1e667df06d176a594f0e68ee3107eb8308d5476b65dcb28c9"
+  },
+  "note": "Weather and tracer training retain the first direct kernel. Final benchmark and checkpoint evaluation use the folded kernel."
+}

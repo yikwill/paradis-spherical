@@ -104,6 +104,8 @@ python forecast.py --config logs/weather/disco/config.yaml \
 Forecast output is incremental Zarr with physical units and geographic wind
 components. The output path must be new. Input history and the requested forcing
 horizon must exist in the dataset. Native forecasting currently writes on one device.
+The forecast CLI uses eager execution; the compiled latency measurements below
+measure the model benchmark harness.
 
 ## Tracer and performance experiments
 

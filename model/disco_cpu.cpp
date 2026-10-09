@@ -29,12 +29,16 @@ at::Tensor forward(const at::Tensor& x, const at::Tensor& weight, const at::Tens
             for (int64_t i=begin; i<end; ++i) {
                 const auto h=i%H, bc=i/H, c=bc%C;
                 auto *y=yp+i*W;
-                for (auto e=rp[h]; e<rp[h+1]; ++e) {
+                for (auto e=rp[h]; e<rp[h+1];) {
+                    auto end=e+1;
+                    while (end<rp[h+1] && ci[end]==ci[e]) ++end;
                     const auto hi=ci[e]/W, shift=ci[e]%W;
-                    const scalar_t coefficient=vp[e]*wp[c*K+ki[e]];
+                    scalar_t coefficient=0;
+                    for (auto j=e; j<end; ++j) coefficient += vp[j]*wp[c*K+ki[j]];
                     const auto *source=xp+(bc*H+hi)*W;
                     for (int64_t j=0; j<W-shift; ++j) y[j] += coefficient*source[j+shift];
                     for (int64_t j=W-shift; j<W; ++j) y[j] += coefficient*source[j+shift-W];
+                    e=end;
                 }
             }
         });
@@ -57,9 +61,12 @@ std::tuple<at::Tensor,at::Tensor> backward(const at::Tensor& grad, const at::Ten
         at::parallel_for(0, C, 1, [&](int64_t begin, int64_t end) {
             for (int64_t c=begin; c<end; ++c) for (int64_t b=0; b<B; ++b) for (int64_t h=0; h<H; ++h) {
                 const auto *g=gp+((b*C+c)*H+h)*W;
-                for (auto e=rp[h]; e<rp[h+1]; ++e) {
+                for (auto e=rp[h]; e<rp[h+1];) {
+                    auto end=e+1;
+                    while (end<rp[h+1] && ci[end]==ci[e]) ++end;
                     const auto hi=ci[e]/W, shift=ci[e]%W;
-                    const scalar_t coefficient=vp[e]*wp[c*K+ki[e]];
+                    scalar_t coefficient=0;
+                    for (auto j=e; j<end; ++j) coefficient += vp[j]*wp[c*K+ki[j]];
                     const auto *source=xp+((b*C+c)*H+hi)*W;
                     auto *dsource=dxp+((b*C+c)*H+hi)*W;
                     scalar_t dot=0;
@@ -71,7 +78,8 @@ std::tuple<at::Tensor,at::Tensor> backward(const at::Tensor& grad, const at::Ten
                         dsource[j+shift-W] += coefficient*g[j];
                         dot += source[j+shift-W]*g[j];
                     }
-                    dwp[c*K+ki[e]] += vp[e]*dot;
+                    for (auto j=e; j<end; ++j) dwp[c*K+ki[j]] += vp[j]*dot;
+                    e=end;
                 }
             }
         });

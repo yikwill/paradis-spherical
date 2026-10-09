@@ -63,7 +63,9 @@ def tracer(directory):
         plt.close(fig)
     rows=[]
     fig,axes = plt.subplots(1,2,figsize=(10.4,3.7),layout='constrained')
-    for path in sorted(RESULTS.glob('tracer-*.json')):
+    for path in sorted(RESULTS/f'tracer-{model}{suffix}.json'
+                       for model in ('unet', 'unet-residual', 'paradis')
+                       for suffix in ('', '-continuation', '-continuation-identity300')):
         result = json.loads(path.read_text())
         history=result['history']
         label=result['model'].replace('unet-residual','U-Net(R)').replace('unet','U-Net(P)').replace('paradis','PARADIS')
@@ -147,6 +149,12 @@ def main():
     macros.update(DataUpstream=f"{1000*data['upstream']['median_sample_seconds']:.1f}",
                   DataOptimized=f"{1000*data['optimized']['median_sample_seconds']:.1f}",
                   DataSpeedup=f"{data['upstream']['median_sample_seconds']/data['optimized']['median_sample_seconds']:.2f}")
+    kernels=[]
+    for row in read('grouped-cpu-final.json'):
+        batch,channels,height,width=row['shape']
+        old,new=row['old_and_folded_seconds']
+        kernels.append(f"{height}$\\times${width}, C={channels} & {1000*np.median(old):.3f} & {1000*np.median(new):.3f} & {row['median_speedup']:.2f} \\\\")
+    (RESULTS/'kernel-table.tex').write_text('\n'.join(kernels)+'\n')
     memory=[]
     for name in ('upstream','conv2d','disco'):
         row=read(f'memory-{name}.json')

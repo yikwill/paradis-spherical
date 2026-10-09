@@ -1,0 +1,9 @@
+{
+  "step": 2000,
+  "epoch": 1,
+  "batch": 538,
+  "best_loss": 0.11407607030428824,
+  "bad_validations": 0,
+  "elapsed_seconds": 3592.38137454103,
+  "fit_wall_seconds": 3658.3144065059605
+}

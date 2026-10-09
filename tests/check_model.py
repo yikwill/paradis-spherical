@@ -119,6 +119,24 @@ def check_static_reuse(backend):
             torch.testing.assert_close(a.grad, b.grad, rtol=2e-5, atol=1e-6)
 
 
+def check_model_longitude(backend):
+    cfg = compact_config(backend)
+    dm, batch = synthetic_data(cfg)
+    torch.manual_seed(42)
+    task = ParadisTask(dm, cfg).eval()
+    fields = pole_average(torch.cat([batch[0][:, 0], batch[2][:, 0].permute(0, 3, 1, 2),
+                                     batch[3][:, 0].permute(0, 3, 1, 2)], 1))
+    # Coarsening preserves shifts that are multiples of its stride.
+    shift = cfg.model.coarsening_factor
+    with torch.no_grad():
+        expected = task(fields)
+        actual = task(fields.roll(shift, -1))
+    torch.testing.assert_close(actual, expected.roll(shift, -1), rtol=2e-5, atol=1e-6)
+    return dict(shift=shift, max_abs_error=(actual - expected.roll(shift, -1)).abs().max().item(),
+                # The inherited pooling does not preserve scalar poles globally.
+                pole_longitude_std=[expected[..., row, :].std(-1).max().item() for row in (0, -1)])
+
+
 def main():
     torch.set_num_threads(2)
     torch.manual_seed(3)
@@ -126,6 +144,7 @@ def main():
         check_static_reuse(backend)
     result = dict(disco_reference_max_abs_error=check_disco(),
                   parameters={name: check_resume(name) for name in ("conv2d", "disco")},
+                  full_model_longitude={name: check_model_longitude(name) for name in ("conv2d", "disco")},
                   checkpoint_resume="bitwise identical", static_reuse="loss and gradients match for truncation 1/2/3", status="passed")
     Path("report/results/model-checks.json").write_text(json.dumps(result, indent=2)+"\n")
     print(json.dumps(result, indent=2))

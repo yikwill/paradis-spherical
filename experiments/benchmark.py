@@ -1,10 +1,13 @@
 """Matched CPU latency measurements, optionally with an operator profile."""
 import argparse
 import gc
+import hashlib
 import json
+import os
 from pathlib import Path
 import platform
 import resource
+import subprocess
 import time
 
 import numpy as np
@@ -88,6 +91,11 @@ def main():
                                                                 bootstrap_95_interval=[ci[0],ci[2]],
                                                                 one_sided_95_upper=ci[1], no_slowdown=ci[1] <= 1)
     result = dict(arguments=vars(args), torch=torch.__version__, platform=platform.platform(),
+                  source_revision=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+                  cpu_affinity=sorted(os.sched_getaffinity(0)),
+                  source_sha256={str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+                                 for path in [*Path('model').glob('*.py'), *Path('model').glob('*.cpp'),
+                                              Path('trainer.py'), Path('utils/loss.py'), Path('experiments/benchmark.py')]},
                   parameters={name: sum(p.numel() for p in task.parameters()) for name,task in models.items()},
                   construction_seconds=construction, two_warmup_calls_seconds=warmup,
                   samples_seconds=samples, summary=summary,
