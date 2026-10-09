@@ -18,6 +18,7 @@ import torch.nn.functional as F
 
 from experiments.common import compact_config
 from model.padding import GeoCyclicPadding
+from model.blocks import ChannelNorm
 from model.paradis import Paradis
 
 
@@ -46,13 +47,31 @@ def conv_block(a,b):
                          GeoCyclicPadding(1),nn.Conv2d(b,b,3),nn.SiLU())
 
 
+class ResidualConvBlock(nn.Module):
+    """Figure 19: ConvAct then two-convolution residual block.
+
+    ChannelNorm follows the public PARADIS implementation; residual scale is one.
+    These choices are assumptions because the toy U-Net source is unavailable.
+    """
+    def __init__(self,a,b):
+        super().__init__()
+        self.entry=nn.Sequential(GeoCyclicPadding(1),nn.Conv2d(a,b,3),ChannelNorm(b,b),nn.SiLU())
+        self.branch=nn.Sequential(GeoCyclicPadding(1),nn.Conv2d(b,b,3),ChannelNorm(b,b),nn.SiLU(),
+                                  GeoCyclicPadding(1),nn.Conv2d(b,b,3),ChannelNorm(b,b))
+
+    def forward(self,x):
+        x=self.entry(x)
+        return F.silu(x+self.branch(x))
+
+
 class UNet(nn.Module):
-    """Depth-three U-Net, top width four; reconstructed from the paper description."""
-    def __init__(self):
+    """Depth-three U-Net; plain diagnostic or closer Figure 19 reconstruction."""
+    def __init__(self,residual=False):
         super().__init__()
         widths=[4,8,16,32]
-        self.encoders=nn.ModuleList([conv_block(1 if i==0 else widths[i-1],w) for i,w in enumerate(widths)])
-        self.decoders=nn.ModuleList([conv_block(widths[i+1]+widths[i],widths[i]) for i in (2,1,0)])
+        block=ResidualConvBlock if residual else conv_block
+        self.encoders=nn.ModuleList([block(1 if i==0 else widths[i-1],w) for i,w in enumerate(widths)])
+        self.decoders=nn.ModuleList([block(widths[i+1]+widths[i],widths[i]) for i in (2,1,0)])
         self.output=nn.Conv2d(4,1,1)
 
     def forward(self,x):
@@ -70,7 +89,7 @@ class UNet(nn.Module):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--model",choices=["paradis","unet"],required=True)
+    parser.add_argument("--model",choices=["paradis","unet","unet-residual"],required=True)
     parser.add_argument("--steps",type=int,default=500)
     parser.add_argument("--seconds",type=float,default=7200)
     parser.add_argument("--threads",type=int,default=8)
@@ -91,7 +110,7 @@ def main():
         model=Paradis(dm,cfg,lat,lon)
         inputs=torch.cat([initial,lat.sin()[None,None]],1)
     else:
-        model=UNet()
+        model=UNet(residual=args.model=='unet-residual')
         inputs=initial
         cfg=None
     optimizer=torch.optim.AdamW(model.parameters(),lr=2e-3,weight_decay=0)

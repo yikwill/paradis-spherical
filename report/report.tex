@@ -135,12 +135,19 @@ at the poles:
 The reported relative MSE divides this by the zero-predictor MSE, preventing a
 small absolute loss on a mostly empty globe from being mistaken for successful
 transport. Signed mass error and prediction extrema are also in the raw results.
+The optimal spatially constant prediction has amplitude \ConstantAmplitude\ and
+relative MSE \ConstantRatio. Reaching this baseline, even with accurate total
+mass, does not demonstrate localization or transport of the Gaussian.
 
 The compact full PARADIS has 8 latent, 4 transported, and 8 static channels, two
 processor blocks, and spatial coarsening by 2. A depth-three U-Net with top width 4
-is reconstructed from the paper's description. Its implementation and parameter
-count differ from the paper's stated 45,909 parameters; the original toy-experiment
-code was not recovered. Both models use seed 42, AdamW with learning rate 0.002,
+is reconstructed from the paper's Figure 19: an entry convolution followed by a
+normalized two-convolution residual block at each level. The chosen $3\times3$
+kernels, upstream ChannelNorm, unit residual scale, average pooling, and bilinear
+upsampling remain implementation assumptions. This version has 46,481 parameters,
+versus the paper's stated 45,909; the original toy-experiment code was not recovered.
+Earlier plain double-convolution U-Net runs (30,601 parameters) are retained as
+auxiliary diagnostics and excluded from the main figure. Both models use seed 42, AdamW with learning rate 0.002,
 zero weight decay, and gradient clipping at 1.
 
 The main protocol trains directly against the fixed $68^\circ$ target for up to
@@ -160,16 +167,18 @@ shared display range and are quantified in the raw metrics.}
 \end{figure}
 \begin{table}[ht]
 \centering\small
-\begin{tabular}{lrrrrr}
+\begin{tabular}{lrrrrrr}
 \toprule
-Model/protocol & Parameters & Updates & MSE & Relative MSE & Minutes \\
+Model/protocol & Parameters & Updates & Angle & MSE & Relative MSE & Minutes \\
 \midrule
 \input{results/tracer-table.tex}
 \bottomrule
 \end{tabular}
-\caption{Every attempted tracer protocol is retained. ``Ramp'' denotes angular
+\caption{Every attempted tracer protocol is retained. U-Net(R) is the residual
+reconstruction and U-Net(P) is the earlier plain diagnostic. ``Ramp'' denotes angular
 continuation; ``warmup'' adds identity training. Elapsed optimization time includes
-final evaluation, but excludes model/stencil construction.}
+final evaluation, but excludes model/stencil construction. Angle is the last
+training target in degrees; a time-capped run may not reach $68^\circ$.}
 \end{table}
 \begin{figure}[ht]
 \centering\includegraphics[width=\linewidth]{figures/tracer-learning.pdf}
@@ -216,6 +225,21 @@ comparison, approximately 1.37 passes over the training windows; it is not a
 statistical equivalence test or evidence of full-scale forecasting skill. The
 short run, changed architecture, resolution, coordinate inputs, and corrected
 loss weighting prevent direct comparison with the paper's published scores.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Predictor & $z_{500}$ RMSE ($\mathrm{m^2\,s^{-2}}$) & $T_{2\mathrm{m}}$ RMSE (K) \\
+\midrule
+\input{results/weather-physical-table.tex}
+\bottomrule
+\end{tabular}
+\caption{Six-hour RMSE of final checkpoints, pooled across all 122 January
+validation windows with cosine-latitude weighting. Persistence carries the last
+input field forward. These physical-unit scores contextualize the aggregate loss;
+they are not the paper's long-lead forecast evaluation.}
+\end{table}
 
 \begin{figure}[ht]
 \centering\includegraphics[width=\linewidth]{figures/weather-learning.pdf}
@@ -272,10 +296,26 @@ from these boxes and retained separately in the raw result file.}
 
 Fresh-process memory measurements in \texttt{results/memory-*.json} report resident
 peaks including Python, libraries, model construction, and compilation. They are
-not isolated tensor-allocation peaks. The separate data-loading benchmark compares
+not isolated tensor-allocation peaks.
+\begin{table}[ht]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Variant & Import peak (GiB) & Full process peak (GiB) \\
+\midrule
+\input{results/memory-table.tex}
+\bottomrule
+\end{tabular}
+\caption{Separate processes, three training updates each, four CPU threads;
+optimized variants compiled, upstream eager.}
+\end{table}
+
+The separate data-loading benchmark compares
 preloaded January samples at matching initialization times and checks numerical
 agreement of dynamic fields and forcings. Constant coordinate channels differ
 intentionally. Setup timings include reads with an uncontrolled filesystem cache.
+Median sample time is \DataUpstream\ ms upstream and \DataOptimized\ ms optimized,
+a measured speedup of \DataSpeedup$\times$; dynamic/forcing values agree exactly.
 Pilot profiles and tuning trials are retained for audit; the earliest pilot used
 only five output features and must not be compared directly to the final
 97-output-channel latency measurements.

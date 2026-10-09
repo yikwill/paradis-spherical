@@ -57,6 +57,7 @@ The preload allocator enforces `dataset.preload_max_gb` (64 by default).
 ```bash
 python -m experiments.prepare_weather /path/to/paradis-data
 python -m experiments.weather --root /path/to/paradis-data --steps 2000 --threads 4 --compile
+python -m experiments.evaluate_weather --root /path/to/paradis-data
 ```
 
 Both variants use the same seed (42), data order, AdamW settings, schedule, and
@@ -108,18 +109,19 @@ horizon must exist in the dataset. Native forecasting currently writes on one de
 
 ```bash
 python -m experiments.tracer --model paradis --steps 500 --seconds 7200
-python -m experiments.tracer --model unet --steps 500 --seconds 3600
+python -m experiments.tracer --model unet-residual --steps 500 --threads 4 --seconds 7200
 python -m experiments.tracer --model paradis --steps 400 --continuation-steps 300 --seconds 5400
-python -m experiments.tracer --model unet --steps 400 --continuation-steps 300 --seconds 1800
+python -m experiments.tracer --model unet-residual --steps 400 --continuation-steps 300 --threads 4 --seconds 7200
 python -m experiments.tracer --model paradis --steps 1000 --identity-steps 300 --continuation-steps 600 --threads 4 --seconds 10800
-python -m experiments.tracer --model unet --steps 1000 --identity-steps 300 --continuation-steps 600 --threads 4 --seconds 5400
+python -m experiments.tracer --model unet-residual --steps 1000 --identity-steps 300 --continuation-steps 600 --threads 4 --seconds 10800
 ```
 
 All tracer runs use the full 721x1440 grid. The main experiment uses one fixed 68-degree
 northeast displacement; continuation is a separately labelled diagnostic. The full
-compact PARADIS replaces the paper's tiny NSL example as requested. The U-Net is
-reconstructed from the depth/width description; its architecture and parameter count
-differ from the unavailable original implementation. Gaussian width, center, and
+compact PARADIS replaces the paper's tiny NSL example as requested. The main U-Net follows Figure 19's normalized residual blocks (46,481 parameters).
+ChannelNorm, unit residual scale, 3x3 kernels, average pooling, and bilinear upsampling
+remain assumptions; the paper reports 45,909 parameters and its toy source is unavailable.
+Earlier plain U-Net runs (30,601 parameters, `--model unet`) remain as auxiliary diagnostics. Gaussian width, center, and
 optimizer settings are explicit in the script and report. Fields/checkpoints default
 to `/home/yikwill/paradis-data/tracer`; override `--output` on another machine.
 
@@ -149,6 +151,7 @@ Memory measurements use separate processes and include Python/libraries/construc
 ```bash
 python -m tests.check_data
 python -m tests.check_loss
+python -m tests.check_weather_metrics
 python -m tests.check_model
 python -m tests.check_fit
 PARADIS_TEST_DATA=/tmp/paradis-ddp-check python -m torch.distributed.run --standalone --nproc-per-node=2 -m tests.check_distributed

@@ -131,3 +131,68 @@ are outside the 12-hour CPU experiment budget; four GPU-hours remain reserved.
 - `paradis-setup/README.md` updated to ongoing status; historical handoff retained.
 - `pip check` passes. Compileall in the project Python3.11 passes; host system
   python3 is too old for existing walrus syntax and is not a supported environment.
+
+## Checkpoint 2026-10-09 01:38 UTC
+
+- Read the actual v1 paper PDF after HTML extraction omitted Figure19 internals.
+  Figure19 shows ConvAct + normalized two-convolution residual blocks. Added a
+  closer U-Net (`--model unet-residual`), 46,481 parameters vs paper45,909. Assumed
+  upstream ChannelNorm, fixed residual scale1, 3x3 convs, averagepool2, bilinearup.
+  The prior plain U-Net30,601parameters is now auxiliary only. Forward/backward
+  shape and finite-gradient smoke passed. Main report figure uses residual U-Net.
+- Added three residual U-Net runs, all4threads: fixed500/max7200sec onCPUs24-27
+  session91318/log `/tmp/paradis-unet-residual.log`; ramp300/400total/max7200sec
+  onCPUs40-43 session74836/log `/tmp/paradis-unet-residual-continuation.log`;
+  identity300+ramp600+fixed100/max10800sec onCPUs28-31 session21030/log
+  `/tmp/paradis-unet-residual-warm.log`. Started~01:25UTC.
+- Plain fixed U-Net completed500updates: relativeMSE0.99235,26.36min; plain ramp
+  completed400updates with almostidentical error20.93min. They approximate the
+  optimal constant field, not transport. Plain identity/ramp stillrunning.
+- Full PARADIS identitywarmup begins to improve around150updates (~0.00177MSE),
+  so keep running. Main fixedPARADIS~step250 currently~0.001779MSE.
+- Weatherconv2d~step700, validation0.13204at600. DISCO has NOT started yet.
+- Added `experiments/evaluate_weather.py`: final-checkpoint physical sixhour RMSE
+  forz500/T2m pluspersistence; run afterbothweatherresults. Its small unit/latitude/
+  ordering regression `tests/check_weather_metrics.py` passes.
+- `report/make_figures.py` now builds residual-UNet vsPARADIS main/diagnostic maps,
+  all9triallearningcurves/tables including lasttrainingangle, physicalRMSEtable,
+  RSS/data-loadingnumbers, and optimalconstanttracerbaseline. Report/READMEupdated.
+- Final stage controller now session6238, script `/tmp/paradis-final-stage.py`, log
+  `/tmp/paradis-final-measurements.log`. Waits for TWOweatherprogress+NINEtracerJSONs,
+  asserts2000weatherupdates, runs isolated20repeatcompiledbenchmark/profiles, data
+  benchmark, threefreshmemoryprocesses, physicalevaluation, figures+latexmk. It MUST
+  only run when our training is idle. It does not push or inspect PDF. Can interrupt
+  waiting controller with write_stdin Ctrl-C (confirmed works withoutTTY).
+- Git origin SSH failed on host /etc/ssh config ownership. Changed repo-local origin
+  to HTTPS. `git -c credential.helper='!gh auth git-credential' ls-remote origin`
+  succeeds. No pushes yet; use samehelperforfinalpush. No globalSSH/Git edits.
+
+### Additional CPU optimization prototype (not adopted yet)
+
+- TH stencil has ~2.85--3.06basis contributions peruniqueinputgridpoint. Folding
+  coefficients for equal(row,column) canavoidrepeatvectorloads/dotproducts.
+- Candidate C++ source `/tmp/paradis_disco_grouped.cpp`; original native source is
+  STILL model/disco_cpu.cpp (commit58f5fbf). Candidate namespace is
+  `paradis_disco_grouped` toavoidcolliding with liveprocesses. Sorted geometry order
+  is argsort(psi_row_idx*(H*W)+psi_col_idx,stable=True); rowptrcountsunchanged.
+- Trial `/tmp/paradis-tune-grouped.py` firstsequentialtimingswerenoisy(smallslower).
+  Followup `/tmp/paradis-tune-grouped-interleaved.py` randomized20blocks, excluded
+  first3: small61x120C32k5 median1.337x; large121x240C64k7 median1.733x faster.
+  Float64value/graderrors~1e-15; fp32output/inputgradmax~3.6e-6; weightgradidentical.
+  Rawresults `report/results/grouped-cpu-{tuning,interleaved}.json`.
+- DO NOT update main `model/disco_cpu.py/.cpp` yet: the running weather process
+  imported old SphericalConv code but lazily imports disco_cpu only when the SECOND
+  backend constructs. Wait until `/tmp/paradis-weather.log` prints
+  `disco: 111638 parameters` (and fit starts), soallactivejobs have loaded oldmodule.
+  Then safely adopt candidate by replacing namespace backto`paradis_disco`, changing
+  load extension cache name to`paradis_disco_cpu_v2` (neveroverwrite liveold.so), and
+  changing SphericalConv geometry sort to(row,column). Active jobs willretainold
+  loadedcode/library. Finalbench/evaluationwilluserevisedkernel. Explain revision
+  difference inreport. Re-run model/fit/compilechecks afteradoptionbeforebenchmark.
+- Need a permanent reproducible groupedtuningdriver afteradoption: retrieve oldC++
+  from `git show58f5fbf:model/disco_cpu.cpp`, replace itsnamespace with uniquev1name,
+  compile inTemporaryDirectory, compare oldrow-sortedvsnewcolumn-sorted kernel at
+  identicalweights; no permanent duplicateC++source needed.
+- Consider finalphysicalevaluation also computing aggregatevalidationloss and
+  comparing against loggedfinalscore to confirm newkernel/compiled-vs-eager effects
+  on trained checkpoints are negligible. Do not claim trainingusednewkernel.
