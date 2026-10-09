@@ -140,8 +140,11 @@ def main():
     perf=benchmark()
     macros={
         'WeatherRatio': f"{scores['final_loss_ratio']:.3f}",
+        'WeatherComparison': 'meets' if scores['within_descriptive_limit'] else 'does not meet',
         'InferenceBound': f"{perf['summary']['inference']['disco_over_upstream']['one_sided_95_upper']:.3f}",
         'TrainingBound': f"{perf['summary']['training']['disco_over_upstream']['one_sided_95_upper']:.3f}",
+        'SpeedGate': 'passes' if all(perf['summary'][workload]['disco_over_upstream']['no_slowdown']
+                                  for workload in ('inference', 'training')) else 'fails',
         'ConstantRatio': f"{baselines['constant_over_zero']:.5f}",
         'ConstantAmplitude': f"{baselines['optimal_constant_amplitude']:.5f}",
     }

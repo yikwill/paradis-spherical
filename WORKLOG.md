@@ -259,3 +259,22 @@ are outside the 12-hour CPU experiment budget; four GPU-hours remain reserved.
 - The report generator now enumerates the nine intended runs, avoiding accidental
   interpretation of its generated tracer-baselines.json as a training history.
   Full figure/PDF generation remains queued after all runs and isolated timing.
+
+## Forecast compilation regression, 2026-10-09 03:01 UTC
+
+- Forecasting ignored `compute.compile` even when the checkpoint configuration
+  enabled it. The CLI now uses the same whole-model/modules choices as training.
+- Expanded `tests.check_forecast` to invoke the actual argument parser and main
+  function with compilation enabled, assert that Dynamo captures graphs, and
+  compare every exported physical field against eager execution. It also retains
+  the horizon, incremental-output, lead-time and overwrite checks.
+- Running this regression with `forecast.py` from `9a235ec` fails specifically
+  with "Saved compilation setting was ignored". The current implementation passes;
+  log: `/tmp/paradis-forecast-compile-regression.log`. Compiled/eager physical-field
+  tolerances are rtol=5e-5 and atol=5e-4. No training model or kernel code changed.
+- The two-rank autoregressive DISCO test also passes with the folded kernel;
+  log: `/tmp/paradis-ddp-folded-final.log`.
+- Seven of nine tracer runs are complete. The no-warmup PARADIS ramp hit its time
+  cap after 204 updates at 46.24 degrees; final-target relative MSE is 1.09117.
+  Identity-first PARADIS remains accurate around 50 degrees. Weather losses at
+  1,000 updates are 0.126824 (DISCO) and 0.126639 (Conv2d).

@@ -64,6 +64,11 @@ Both variants use the same seed (42), data order, AdamW settings, schedule, and
 2,000 updates. They have two processor blocks, 64 latent, 32 transported, and 32
 static channels. The 97 output features retain the upstream variable/pressure-level
 selection. All inputs and targets stay inside their respective date splits.
+The recorded fits used the first direct CPU kernel, available at `7a7b107`;
+the folded kernel was added in `9a235ec`. Final benchmarks and checkpoint
+re-evaluation use the folded version. Repeating training on the latest source
+need not produce bitwise-identical weights; use the earlier revision to retain
+the recorded kernel's floating-point accumulation order.
 Logs and checkpoints are written to `logs/weather/{conv2d,disco}`. Existing run
 logs are protected from accidental reuse; use a new experiment name or explicitly
 resume through `train.py`. Repeating the paired script requires a fresh log location
@@ -104,8 +109,8 @@ python forecast.py --config logs/weather/disco/config.yaml \
 Forecast output is incremental Zarr with physical units and geographic wind
 components. The output path must be new. Input history and the requested forcing
 horizon must exist in the dataset. Native forecasting currently writes on one device.
-The forecast CLI uses eager execution; the compiled latency measurements below
-measure the model benchmark harness.
+The forecast CLI honors the saved compilation setting. The latency measurements
+below time the model harness; forecast file writing is outside those measurements.
 
 ## Tracer and performance experiments
 
@@ -156,7 +161,7 @@ python -m tests.check_loss
 python -m tests.check_weather_metrics
 python -m tests.check_model
 python -m tests.check_fit
-PARADIS_TEST_DATA=/tmp/paradis-ddp-check python -m torch.distributed.run --standalone --nproc-per-node=2 -m tests.check_distributed
+PARADIS_TEST_DATA="$(mktemp -d)" python -m torch.distributed.run --standalone --nproc-per-node=2 -m tests.check_distributed
 python -m tests.check_forecast /path/to/paradis-data
 python -m experiments.tune_compile
 ```
@@ -167,6 +172,11 @@ capture from outside this repository with `PYTHONPATH` pointing to the worktree,
 then run `python -m tests.check_port /path/to/fixture.pt ../paradis-upstream` here.
 See `tests/capture_upstream.py`. This isolates numerical orchestration parity from
 intentional architecture and loss-weight corrections.
+
+Rebuild the PDF directly from the committed figures and tables with
+`cd report && latexmk -pdf -interaction=nonstopmode -halt-on-error report.tex`.
+After rerunning the experiments, regenerate figures from their local field files
+with `python report/make_figures.py --tracer-dir /path/to/paradis-data/tracer`.
 
 The regressions cover temporal split isolation, single/multiple input frames,
 normalization/cache immutability, all 97 named loss weights, DISCO reference values

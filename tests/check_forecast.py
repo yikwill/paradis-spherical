@@ -2,14 +2,17 @@
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import numpy as np
+from omegaconf import OmegaConf
 import torch
+from torch._dynamo.utils import counters
 import xarray as xr
 
 from data.datamodule import Era5DataModule
 from experiments.weather import weather_config
-from forecast import predict_batch
+from forecast import main as forecast_main, predict_batch
 from trainer import ParadisTask, configure_optimizers, save_checkpoint, load_checkpoint
 from utils.file_output import ZarrForecastWriter
 
@@ -47,13 +50,29 @@ def main():
         assert output.sizes['time']==2 and output.sizes['prediction_timedelta']==3
         assert np.isfinite(output['2m_temperature'].values).all()
         assert np.isfinite(output.geopotential.values).all()
+        cfg.compute.compile=True
+        config=Path(directory)/'config.yaml'
+        OmegaConf.save(cfg,config)
+        compiled_path=Path(directory)/'compiled.zarr'
+        graphs=counters['stats']['unique_graphs']
+        with patch.object(sys,'argv',['forecast.py','--config',str(config),
+                                      '--checkpoint-path',str(checkpoint),'--output-file',str(compiled_path),
+                                      '--forecast-steps','3','--sampling-interval','6h','--num-devices','1',
+                                      '--num-workers','0','--flush-every-n-steps','1',
+                                      '--start-date','2017-01-01T06:00:00','--end-date','2017-01-01T12:00:00']):
+            forecast_main()
+        assert counters['stats']['unique_graphs']>graphs, 'Saved compilation setting was ignored'
+        compiled=xr.open_zarr(compiled_path,consolidated=True)
+        for name in output.data_vars:
+            np.testing.assert_allclose(compiled[name].values,output[name].values,rtol=5e-5,atol=5e-4)
+        np.testing.assert_array_equal(compiled.prediction_timedelta.values,output.prediction_timedelta.values)
         try:
             ZarrForecastWriter(cfg,data.dataset).init_store(data.dataset)
         except FileExistsError:
             pass
         else:
             raise AssertionError('Existing forecast data was overwritten')
-    print('PASS: real-data native forecast, checkpoint horizon change, incremental Zarr output, lead times, overwrite protection')
+    print('PASS: real-data native forecast, compiled CLI agreement, checkpoint horizon change, incremental Zarr output, lead times, overwrite protection')
 
 
 if __name__=='__main__':

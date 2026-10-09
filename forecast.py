@@ -101,6 +101,10 @@ def main():
     device = torch.device("cuda" if cfg.compute.accelerator in ("gpu", "cuda") else "cpu")
     model = ParadisTask(datamodule, cfg).to(device).eval()
     load_checkpoint(cfg.init.checkpoint_path, model)
+    if cfg.compute.compile is True:
+        model.model.compile()
+    elif cfg.compute.compile == "modules":
+        model.model._compile()
     writer = ZarrForecastWriter(cfg, datamodule.dataset)
     writer.init_store(datamodule.dataset)
     with torch.inference_mode():

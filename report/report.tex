@@ -35,8 +35,9 @@ modified experiment, not an exact reconstruction of the paper's small NSL model.
 
 The complete upstream repository and history are retained at commit
 \texttt{9a6f4b7d0dadfb80918ff8929bd92b6a5da2bcc5}. The unchanged reference is a detached
-worktree. The primary implementation commit is \texttt{58f5fbf}; later commits
-contain additional checks, experiment drivers, measurements, and this report.
+worktree. The primary implementation commit is \texttt{58f5fbf}; the folded CPU
+kernel and its checks are committed as \texttt{9a235ec}. Other commits contain
+additional checks, experiment drivers, measurements, and this report.
 Saved weather configurations and provenance files identify the training source.
 The private repository is \url{https://github.com/yikwill/paradis-spherical}.
 
@@ -76,7 +77,7 @@ Architecture & All nine spatial convolutions in the two-block compact model repl
 Static-feature reuse & Losses and parameter gradients match recomputation for truncation lengths 1, 2, and 3. \\
 Checkpoint continuation & Bitwise agreement for both backends; actual fit-loop interruption/resume crosses an epoch boundary. \\
 Data and loss & Complete-window split isolation, one/two-frame order, normalization and cache immutability; all 97 named loss weights. \\
-Native execution & Two CPU ranks with accumulation, validation and checkpointing; real ERA5 forecast to incremental Zarr, including horizon changes and lead-time coordinates. \\
+Native execution & Two CPU ranks with accumulation, validation and checkpointing; compiled forecast CLI agrees with eager physical fields, including horizon changes, incremental Zarr and lead-time coordinates. \\
 Compilation & Full weather-shaped outputs and parameter gradients agree within the recorded tolerances before enabling compilation. \\
 \bottomrule
 \end{tabular}
@@ -190,6 +191,13 @@ over 600 updates, then hold the target fixed. These are optimization diagnostics
 not substitutions for the main fixed-target result. Time caps and completed update
 counts are preserved in each JSON record.
 
+Under the fixed-target protocol, the residual U-Net converges to an almost
+constant field. PARADIS produces a broad zonal band near the target latitude,
+with only weak longitude variation. Neither reconstructs the localized Gaussian:
+the modest reduction in PARADIS's relative MSE does not demonstrate successful
+transport. The separate identity-first diagnostic tests whether a gradual target
+change can avoid this optimization failure.
+
 \begin{figure}[p]
 \centering\includegraphics[width=\linewidth]{figures/tracer.pdf}
 \caption{Figure 3-style reconstruction under the fixed-target protocol. All maps
@@ -259,10 +267,12 @@ Backend & Updates & Final validation & Best validation & Fit minutes \\
 \bottomrule
 \end{tabular}
 \caption{Paired short weather runs. Fit time includes compilation, training,
-validation, and checkpoint writes, and excludes dataset preload/model construction.}
+validation, and checkpoint writes, and excludes dataset preload/model construction.
+Other tracer jobs ran concurrently; these fit times are descriptive.}
 \end{table}
 The final DISCO/Conv2d validation-loss ratio is \WeatherRatio. The predeclared
-\emph{descriptive} comparability threshold is 1.10. This is one short, single-seed
+\emph{descriptive} comparability threshold is 1.10, which this result
+\WeatherComparison. This is one short, single-seed
 comparison, approximately 1.37 passes over the training windows; it is not a
 statistical equivalence test or evidence of full-scale forecasting skill. The
 short run, changed architecture, resolution, coordinate inputs, and corrected
@@ -326,7 +336,8 @@ Workload & Variant & Median seconds & DISCO/upstream upper 95\% \\
 DISCO rows. Raw samples and both upstream/control comparisons are committed.}
 \end{table}
 The inference upper bound is \InferenceBound; the training upper bound is
-\TrainingBound. The JSON \texttt{no\_slowdown} fields give the gate outcomes.
+\TrainingBound. The joint no-slowdown criterion \SpeedGate\ for this workload.
+The JSON \texttt{no\_slowdown} fields retain both individual outcomes.
 A failed bound is retained as a failed target, even when the point estimate or an
 isolated kernel is faster. No CPU result establishes GPU parity.
 
