@@ -1,75 +1,25 @@
-"""Training script for the model."""
-
+"""Train PARADIS with PyTorch, optionally launched with torchrun."""
 import logging
+import os
 
 import hydra
-import lightning as L
-from lightning.pytorch.loggers import TensorBoardLogger
-from omegaconf import DictConfig
+import torch.distributed as dist
 
 from data.datamodule import Era5DataModule
-from trainer import LitParadis
-from utils.callbacks import enable_callbacks
-from utils.system import save_train_config, setup_system
+from trainer import ParadisTask, fit
+from utils.system import setup_system
 
 
-# pylint: disable=E1120
 @hydra.main(version_base=None, config_path="config/", config_name="paradis_settings")
-def main(cfg: DictConfig):
-    """Train the model on ERA5 dataset."""
-
-    # Initiate seed for reproducibility and set torch precision
+def main(cfg):
+    if int(os.environ.get("WORLD_SIZE", 1)) > 1:
+        dist.init_process_group("nccl" if cfg.compute.accelerator in ("gpu", "cuda") else "gloo")
     setup_system(cfg)
-
-    # Instantiate data module
-    datamodule = Era5DataModule(cfg)
-
-    # Early setup call for datamodule attribute access
-    datamodule.setup(stage="fit")
-
-    # Initialize model
-    litmodel = LitParadis(datamodule, cfg)
-
-    # Prepare callbacks
-    callbacks = enable_callbacks(cfg)
-
-    # Configure logger with optional experiment name
-    logger = TensorBoardLogger(
-        save_dir=cfg.training.log_dir,
-        name="lightning_logs",
-        version=cfg.training.get("experiment_name", None),
-    )
-
-    # Instantiate lightning trainer with options
-    trainer = L.Trainer(
-        default_root_dir=cfg.training.log_dir,
-        accelerator=cfg.compute.accelerator,
-        devices=cfg.compute.num_devices,
-        num_nodes=cfg.compute.num_nodes,
-        strategy="auto" if cfg.compute.num_devices == 1 else "ddp",
-        max_epochs=cfg.training.max_epochs,
-        max_steps=cfg.training.max_steps,
-        gradient_clip_val=cfg.training.gradient_clip_val,
-        gradient_clip_algorithm="norm",
-        log_every_n_steps=cfg.training.log_every_n_steps,
-        callbacks=callbacks,
-        precision="bf16-mixed" if cfg.compute.use_amp else "32-true",
-        enable_progress_bar=cfg.training.progress_bar and not cfg.training.print_losses,
-        enable_model_summary=True,
-        logger=logger,
-        val_check_interval=cfg.training.validation_dataset.validation_every_n_steps,
-        limit_val_batches=cfg.training.validation_dataset.validation_batches,
-        enable_checkpointing=cfg.training.checkpointing.enabled,
-        num_sanity_val_steps=0,
-        accumulate_grad_batches=1, # This must be set to one here for manual optimization, but taken care of in trainer.py
-    )
-
-    # Keep track of configuration parameters in logging directory
-    save_train_config(trainer.logger.log_dir, cfg)  # type: ignore
-
-    # Train model
-    checkpoint_path = cfg.init.checkpoint_path if cfg.init.restart else None
-    trainer.fit(litmodel, datamodule=datamodule, ckpt_path=checkpoint_path)
+    data = Era5DataModule(cfg)
+    data.setup("fit")
+    fit(ParadisTask(data, cfg), data, cfg)
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

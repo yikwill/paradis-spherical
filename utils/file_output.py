@@ -1,5 +1,4 @@
 import os
-import shutil
 
 import dask
 import dask.array as da
@@ -203,8 +202,9 @@ def _build_template_dataset(cfg, dataset):
         "longitude": dataset.lon,
         "time": sorted_times,
         "level": pressure_levels,
-        "prediction_timedelta": numpy.arange(output_num_forecast_steps + 1)
-        * numpy.timedelta64(dataset.time_resolution * 3600 * 10**9, "ns"),
+        "prediction_timedelta": numpy.concatenate([
+            [0], 1 + numpy.arange(output_num_forecast_steps) * output_frequency
+        ]) * numpy.timedelta64(dataset.time_resolution * 3600 * 10**9, "ns"),
     }
 
     data_vars = {}
@@ -282,7 +282,7 @@ def _build_template_dataset(cfg, dataset):
 def init_forecast_store(cfg, dataset, filename):
     """Create an empty Zarr store with the full sorted time axis and final schema."""
     if os.path.exists(filename):
-        shutil.rmtree(filename)
+        raise FileExistsError(f"Forecast output already exists: {filename}")
 
     ds, encoding = _build_template_dataset(cfg, dataset)
 

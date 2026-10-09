@@ -4,7 +4,10 @@ model:
   forecast_steps: 1                # Number of autoregressive steps
   base_dt: 21600                   # Data time resolution in seconds (6 hours * 3600 seconds)
   num_layers: 8                    # Model depth
-  bias_channels: 8                 # Number of bias channels
+  spatial_conv: disco
+  static_latent_size: 128
+  static_hidden_size: 64
+  bias_channels: 0                 # Number of bias channels
   velocity_vectors: 768            # Number of velocity layers (if latent_multiplier is -1)
   adv_interpolation: bicubic       # Choose between bilinear or bicubic
   activation: SiLU                 # [SiLU, GELU]
@@ -58,6 +61,7 @@ init:
 
 # Input dataset
 dataset:
+  preload_max_gb: 64               # Upper bound for estimated peak preload allocation
   root_dir: /path/to/dataset/
   time_resolution: 6h              # Dataset original resolution
   n_time_inputs: 2                 # Number inputs (For example, n_time_inputs: 2 feeds [tn-1, tn])
@@ -69,6 +73,7 @@ normalization:
 
 # Compute/hardware aspects
 compute:
+  threads: 8
   num_nodes: 1                     # Number of nodes
   num_devices: 1                   # Number of GPUS/CPU devices per node
   accelerator: gpu                 # CPU/GPU
@@ -222,12 +227,7 @@ features:
     - land_sea_mask
     - slope_of_sub_gridscale_orography
     - standard_deviation_of_orography
-    - lon_spacing
-    - cos_latitude
-    - cos_longitude
-    - sin_longitude
-    - latitude
-    - longitude
+    - sin_latitude
   output:
     atmospheric:
     - geopotential

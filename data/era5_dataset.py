@@ -2,7 +2,6 @@
 
 import os
 import re
-from datetime import timedelta
 
 import dask
 import numpy
@@ -68,7 +67,7 @@ class ERA5Dataset(torch.utils.data.Dataset):
         # Lazy open this dataset
         ds = xarray.open_mfdataset(
             os.path.join(root_dir, "*[0-9]"),
-            chunks={"time": 1},
+            chunks={},
             engine="zarr",
             preprocess=_preprocess_era5_store,
             join="exact",
@@ -94,47 +93,40 @@ class ERA5Dataset(torch.utils.data.Dataset):
         ds.attrs["toa_radiation_std"] = ds_stats.attrs["toa_radiation_std"]
         ds.attrs["toa_radiation_mean"] = ds_stats.attrs["toa_radiation_mean"]
 
-        # Make sure start date and end_date provide the time, otherwise asume 0Z and 24Z respectively
+        # Split bounds apply to every input and target, not only initialization times.
         if "T" not in start_date:
             start_date += "T00:00:00"
-
-        # Add the number of forecast steps to the range of dates
+        if end_date is not None and "T" not in end_date:
+            end_date += "T23:59:59"
         self.time_resolution = time_resolution = int(cfg.dataset.time_resolution[:-1])
-
-        # Apply an initialization time interval if necessary
-        if time_interval is None:
-            time_interval = time_resolution
-        else:
-            time_interval = int(time_interval[:-1])
-
-        self.interval_steps = time_interval // time_resolution
-        self.prediction_shift = (
-            int(cfg.dataset.prediction_delta[:-1]) // time_resolution - 1
-        ) * self.interval_steps
-
-        # Get the number of additional time instances needed in data for autoregression
-        hours = time_resolution * self.forecast_steps
-
-        start_date_dt = numpy.datetime64(start_date, "s")
+        interval_hours = int((time_interval or cfg.dataset.time_resolution)[:-1])
+        if time_resolution <= 0 or interval_hours < time_resolution or interval_hours % time_resolution:
+            raise ValueError("Sampling interval must be a positive multiple of the native time step")
+        if cfg.dataset.prediction_delta != cfg.dataset.time_resolution:
+            raise ValueError("Autoregressive history requires prediction_delta=time_resolution")
+        self.interval_steps = interval_hours // time_resolution
+        self.prediction_shift = 0
         step = numpy.timedelta64(time_resolution, "h")
-        adjusted_start_date = start_date_dt - (self.n_time_inputs - 1) * step
-
-        # Convert end_date to a datetime object and adjust end date
-        if end_date is not None:
-            if "T" not in end_date:
-                end_date += "T23:59:59"
-
-        # Store a lazy dataset that contains the requested dates only
-        ds_loader = ds.sel(time=slice(start_date, end_date, self.interval_steps))
-        self.ds_loader = ds_loader
-
-        # The number of time instances in the dataset represents its length
-        self.time = ds_loader.time.values
-        self.length = ds_loader.time.size
-
-        # Make sure dataset starts at the right time
-        # Note it can access all available data after this
-        ds = ds.sel(time=slice(adjusted_start_date, None))
+        if prediction_stage:
+            origins = ds.sel(time=slice(start_date, end_date, self.interval_steps)).time.values
+            first = numpy.datetime64(start_date) - (self.n_time_inputs - 1) * step
+            last = origins[-1] + (forecast_steps - 1) * step if len(origins) else first
+            ds = ds.sel(time=slice(first, last))
+            self.length = len(origins)
+            self.time = origins
+        else:
+            ds = ds.sel(time=slice(start_date, end_date))
+            count = max(0, ds.sizes["time"] - self.n_time_inputs - forecast_steps + 1)
+            self.length = len(range(0, count, self.interval_steps))
+            indices = numpy.arange(0, count, self.interval_steps) + self.n_time_inputs - 1
+            self.time = ds.time.values[indices]
+        if not self.length:
+            raise ValueError("Date range contains no complete temporal windows")
+        if not numpy.all(numpy.diff(ds.time.values) == step):
+            raise ValueError("Dataset timestamps must be contiguous at the configured resolution")
+        if prediction_stage and ds.time.values[0] != first:
+            raise ValueError("Forecast initialization is missing its input history")
+        self.ds_loader = ds.sel(time=self.time)
 
         # Extract latitude and longitude to build the graph
         self.lat = torch.from_numpy(ds.latitude.values.copy())
@@ -197,68 +189,19 @@ class ERA5Dataset(torch.utils.data.Dataset):
             "standard_deviation_of_orography",
         }
 
-        # Extract pre-processed constants that require normalization
-        pre_constants = []
+        constants = []
+        forbidden = {"lon_spacing", "cos_latitude", "cos_longitude", "sin_longitude", "latitude", "longitude"}
+        if forbidden.intersection(features_cfg.input.constants) or "sin_latitude" not in features_cfg.input.constants:
+            raise ValueError("Use sin_latitude as the sole explicit coordinate input")
         for var in features_cfg.input.constants:
-
-            # Normalize constants and keep in memory
-            if var in normalize_const_vars:
-                array = (
-                    torch.from_numpy(ds_constants[var].data)
-                    - ds_constants[var].attrs["mean"]
-                ) / ds_constants[var].attrs["std"]
-
-                pre_constants.append(array)
-
-        # Get land-sea mask (no normalization needed)
-        pre_constants.append(
-            torch.from_numpy(ds_constants["land_sea_mask"].data).to(self.dtype)
-        )
-
-        # Include the distance variation of two longitude points along the latitude direction
-        self._compute_geometric_constants()
-
-        post_constants = []
-        for feature in [
-            "lon_spacing",
-            "cos_latitude",
-            "cos_longitude",
-            "sin_longitude",
-            "latitude",
-            "longitude",
-        ]:
-            if feature in features_cfg.input.constants:
-                if feature == "lon_spacing":
-                    post_constants.append(self.d_lon_inv)
-                if feature == "latitude":
-                    post_constants.append(self.lat_rad_grid)
-                if feature == "longitude":
-                    post_constants.append(self.lon_rad_grid)
-                if feature == "cos_latitude":
-                    post_constants.append(torch.cos(self.lat_rad_grid))
-                if feature == "cos_longitude":
-                    post_constants.append(torch.cos(self.lon_rad_grid))
-                if feature == "sin_longitude":
-                    post_constants.append(torch.sin(self.lon_rad_grid))
-
-        # Stack all constant features together
-        self.constant_data = (
-            torch.stack([*pre_constants, *post_constants])
-            .permute(1, 2, 0)
-            .reshape(self.lat_size, self.lon_size, -1)
-            .unsqueeze(0)
-            .expand(self.forecast_steps, -1, -1, -1)
-        )
-
-        # Check that constants have been added properly
-        actual_total = len(pre_constants) + len(post_constants)
-        expected_total = len(features_cfg.input.constants)
-
-        if actual_total != expected_total:
-            raise ValueError(
-                f"Constant count mismatch: expected {expected_total} total constants from configuration, "
-                f"but found {actual_total} (Pre: {len(pre_constants)}, Post: {len(post_constants)})."
-            )
+            if var == "sin_latitude":
+                array = torch.sin(self.lat_rad_grid)
+            else:
+                array = torch.from_numpy(ds_constants[var].values).to(self.dtype)
+                if var in normalize_const_vars:
+                    array = (array - ds_constants[var].attrs["mean"]) / ds_constants[var].attrs["std"]
+            constants.append(array)
+        self.constant_data = torch.stack(constants, dim=-1).unsqueeze(0)
 
         # Store these for access in forecaster
         self.ds_constants = ds_constants
@@ -288,6 +231,12 @@ class ERA5Dataset(torch.utils.data.Dataset):
 
         # Pre-select the features in the right order
         if self.preload:
+            cells = ds.sizes["time"] * self.lat_size * self.lon_size
+            # Include two copies for Dask materialization plus cached forcings.
+            estimated = cells * 4 * (2 * (len(input_features) + len(output_features))
+                                     + len(self.forcing_inputs) * self.n_time_inputs)
+            if estimated > cfg.dataset.get("preload_max_gb", 64) * 1024**3:
+                raise ValueError("Preloading exceeds dataset.preload_max_gb; disable preload or raise the explicit budget")
             ds_input = ds_input.compute()
             ds_output = ds_output.compute()
 
@@ -317,8 +266,14 @@ class ERA5Dataset(torch.utils.data.Dataset):
         # Number of total outputs
         self.num_out_features = len(self.dyn_output_features)
 
-        # Ensure dataset configuration is well-aligned with requirements
-        self._run_dataset_checks()
+        # Cache forcing values once; normalization is independent of the sample.
+        forcing_steps = ds.sizes["time"] - self.n_time_inputs + 1
+        self.forcing_data = self._compute_forcings(ds_input, forcing_steps) if self.preload else None
+        if self.preload:
+            # Already in memory: leave xarray and Dask out of __getitem__.
+            self._input_array = numpy.asarray(self.ds_input.data)
+            self._output_array = numpy.asarray(self.ds_output.data)
+
 
         # Store the mean and standard deviation of quantities to be reported
         if not cfg.forecast.enable and cfg.training.reports.enable:
@@ -334,108 +289,33 @@ class ERA5Dataset(torch.utils.data.Dataset):
         # is no future data
         return self.length
 
-    def _getitem_standard(self, ind: int):
-        ind = ind * self.interval_steps
-
-        # Retrieve the current value of forecast steps
-        steps = self.forecast_steps
-
-        # Extract values from the requested indices
-        input_ini = ind
-        input_end = input_ini + self.n_time_inputs
-        input_data = self.ds_input.isel(time=slice(input_ini, input_end))
-
-        input_end = input_ini + steps + self.n_time_inputs - 1
-        forcing_ds = self.ds_input.isel(time=slice(input_ini, input_end))
-
-        output_ini = input_ini + self.n_time_inputs + self.prediction_shift
-        output_end = ind + steps + self.n_time_inputs + self.prediction_shift
-
-        true_data = self.ds_output.isel(time=slice(output_ini, output_end))
-
-        # Load arrays into CPU memory
-        input_data, true_data = dask.compute(
-            input_data, true_data, scheduler="synchronous", traverse=False
-        )
-
-        # Convert to tensors - data comes in [time, lat, lon, features]
-        x = torch.tensor(input_data.data, dtype=self.dtype)
-
-        # Concatenate n_time_inputs if requested
-        if self.n_time_inputs > 1:
-            x = torch.cat([x[j] for j in range(self.n_time_inputs)], dim=-1).unsqueeze(0)
-        else:
-            x = x.unsqueeze(0)
-
-        y = torch.tensor(true_data.data, dtype=self.dtype)
-
-        # Apply normalizations
-        self._apply_normalization(x, y)
-
-        # Compute forcings
-        forcings = self._compute_forcings(forcing_ds, steps)
-
-        # Permute to [time, channels, latitude, longitude] format
-        x_grid = x.permute(0, 3, 1, 2)
-        y_grid = y.permute(0, 3, 1, 2)
-
-        return x_grid.float(), y_grid.float(), forcings, self.constant_data[:1]
-
-    def _getitem_prediction(self, ind: int):
-        ind0 = ind
-        ind = ind * self.interval_steps
-
-        # Retrieve the current value of forecast steps
-        steps = self.forecast_steps
-
-        # Extract values from the requested indices
-        input_ini = ind
-        input_end = input_ini + self.n_time_inputs
-        input_data = self.ds_input.isel(time=slice(input_ini, input_end))
-
-        input_end = input_ini + steps + self.n_time_inputs - 1
-        forcing_ds = self.ds_input.isel(time=slice(input_ini, input_end))
-
-        # Load arrays into CPU memory
-        # input_data = dask.compute(input_data, scheduler="synchronous", traverse=False)
-        (input_data,) = dask.compute(
-            input_data, scheduler="synchronous", traverse=False
-        )
-
-        # Convert to tensors - data comes in [time, lat, lon, features]
-        x = torch.tensor(input_data.data, dtype=self.dtype)
-
-        # Concatenate n_time_inputs if requested
-        if self.n_time_inputs > 1:
-            x = torch.cat([x[j] for j in range(self.n_time_inputs)], dim=-1).unsqueeze(0)
-        else:
-            x = x.unsqueeze(0)
-
-        # Apply normalizations
-        self._apply_normalization(x, None)
-
-        # Compute forcings
-        forcings = self._compute_forcings(forcing_ds, steps)
-
-        # Permute to [time, channels, latitude, longitude] format
-        x_grid = x.permute(0, 3, 1, 2)
-
-        return ind0, x_grid.float(), forcings, self.constant_data[:1]
-
     def __getitem__(self, ind: int):
+        if ind < 0 or ind >= self.length:
+            raise IndexError(ind)
+        offset = ind * self.interval_steps
+        stop_input = offset + self.n_time_inputs
+        stop_output = stop_input + self.forecast_steps
+        if self.preload:
+            x = self._input_array[offset:stop_input]
+            y = None if self.prediction_stage else self._output_array[stop_input:stop_output]
+        else:
+            x = self.ds_input.data[offset:stop_input]
+            y = None if self.prediction_stage else self.ds_output.data[stop_input:stop_output]
+            x, y = dask.compute(x, y, scheduler="synchronous")
+        # Copy only the requested window: normalization must not mutate the cache.
+        x = torch.tensor(x, dtype=self.dtype).permute(1, 2, 0, 3)
+        x = x.reshape(1, self.lat_size, self.lon_size, -1)
+        y = None if y is None else torch.tensor(y, dtype=self.dtype)
+        self._apply_normalization(x, y)
+        x = x.permute(0, 3, 1, 2).contiguous()
+        if self.forcing_data is None:
+            times = self.ds_input.isel(time=slice(offset, stop_input + self.forecast_steps - 1))
+            forcings = self._compute_forcings(times, self.forecast_steps)
+        else:
+            forcings = self.forcing_data[offset:offset + self.forecast_steps]
         if self.prediction_stage:
-            return self._getitem_prediction(ind)
-        return self._getitem_standard(ind)
-
-    def _run_dataset_checks(self):
-        # Make sure latitude and longitude are in input file
-        assert (
-            self.cfg.features.input.constants[-2] == "latitude"
-        ), "Latitude must be the second-to-last feature in constants!"
-
-        assert (
-            self.cfg.features.input.constants[-1] == "longitude"
-        ), "Longitude must be the last feature in constants!"
+            return ind, x, forcings, self.constant_data
+        return x, y.permute(0, 3, 1, 2).contiguous(), forcings, self.constant_data
 
     def _prepare_normalization(
         self, ds_input: xarray.Dataset, ds_output: xarray.Dataset
@@ -620,22 +500,4 @@ class ERA5Dataset(torch.utils.data.Dataset):
 
         if len(forcings) > 0:
             return torch.cat(forcings, dim=-1)
-        return
-
-    def _compute_geometric_constants(self):
-        # Approximate distances using Haversine formula
-        # This can be later improved for better approximation close to the poles
-        R = 6371  # Average earth radius in km
-
-        # Compute distance between latitude points
-        dlon = torch.diff(torch.deg2rad(self.lon))[0]
-        distance_lon_inv = 1.0 / (
-            2
-            * torch.arcsin(torch.cos(self.lat_rad_grid) ** 2 * torch.sin(dlon / 2))
-            * R
-        )
-
-        # Normalize using z-score
-        distance_lon_mean = torch.mean(distance_lon_inv)
-        distance_lon_std = torch.std(distance_lon_inv)
-        self.d_lon_inv = (distance_lon_inv - distance_lon_mean) / distance_lon_std
+        return torch.empty(steps, self.lat_size, self.lon_size, 0)

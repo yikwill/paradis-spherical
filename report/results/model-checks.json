@@ -1,0 +1,9 @@
+{
+  "disco_reference_max_abs_error": 1.3322676295501878e-15,
+  "parameters": {
+    "conv2d": 3946,
+    "disco": 3946
+  },
+  "checkpoint_resume": "bitwise identical",
+  "status": "passed"
+}

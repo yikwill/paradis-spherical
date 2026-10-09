@@ -1,0 +1,92 @@
+{
+  "status": "planned_not_executed",
+  "repository": "yikwill/paradis-spherical",
+  "visibility": "private",
+  "upstream": "https://github.com/Wx-Alliance-Alliance-Meteo/paradis_model.git",
+  "upstream_revision": null,
+  "environment": "paradis-spherical",
+  "compute": {
+    "local_device": "cpu",
+    "local_experiment_wall_hours": 12,
+    "future_gpu_hours": 4,
+    "gpu_status": "deferred_until_supported_hardware_available",
+    "budget_excludes": ["setup", "data_download", "report_compilation"],
+    "cpu_allocation_hours": {
+      "initial_profiling": 1,
+      "tracer_experiments": 4,
+      "weather_comparison": 6,
+      "final_measurements": 1
+    }
+  },
+  "model_changes": {
+    "default_spatial_conv": "disco",
+    "spatial_conv_choices": ["conv2d", "disco"],
+    "retain_pointwise_convolutions": true,
+    "remove_learned_spatial_biases": true,
+    "explicit_coordinate_inputs": ["sin_latitude"],
+    "disco_basis": "piecewise linear",
+    "disco_basis_shape_for_odd_kernel_k": ["k", "2*k+2"],
+    "disco_support_radius_radians": "k*latitude_spacing_radians/2"
+  },
+  "comparisons": [
+    "pinned_upstream_reference",
+    "optimized_pytorch_conv2d_with_input_and_bias_changes",
+    "matched_optimized_pytorch_disco"
+  ],
+  "tracer": {
+    "paper": "https://arxiv.org/html/2601.21151v1",
+    "figure": 3,
+    "grid_lat_lon": [721, 1440],
+    "loss": "area_weighted_mse",
+    "replacement_model": "compact_full_paradis_disco",
+    "processor_blocks": 2,
+    "latent_channels": 8,
+    "transported_channels": 4,
+    "static_latent_channels": 8,
+    "fallback_settings_if_original_unspecified": {
+      "amplitude": 1,
+      "gaussian_standard_deviation_degrees": 5,
+      "initial_center_lat_lon_degrees": [0, 0],
+      "rigid_rotation_angle_degrees": 68,
+      "initial_bearing_degrees_clockwise_from_north": 45
+    }
+  },
+  "weather": {
+    "source": "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h-240x121_equiangular_with_poles_conservative.zarr",
+    "train_year": 2016,
+    "validation_start_inclusive": "2017-01-01T00:00:00",
+    "validation_end_exclusive": "2017-02-01T00:00:00",
+    "grid_lat_lon": [121, 240],
+    "interval_hours": 6,
+    "features": "upstream_configured_weather_variables_and_pressure_levels",
+    "processor_blocks": 2,
+    "latent_channels": 64,
+    "transported_channels": 32,
+    "static_latent_channels": 32,
+    "seed": 42,
+    "optimizer": "AdamW",
+    "normalization_fit": "training_data_only",
+    "allow_windows_crossing_splits": false,
+    "update_count": "common_count_fixed_after_pilots_before_comparative_training",
+    "descriptive_comparability_ratio_limit": 1.1,
+    "statistical_equivalence_claim": false
+  },
+  "performance_gate": {
+    "latency_ratio": "spherical_over_original",
+    "upper_confidence_bound": 0.95,
+    "maximum_ratio": 1,
+    "required_workloads": ["inference", "training"],
+    "additional_comparison": "spherical_over_optimized_conv2d",
+    "cpu_results_establish_gpu_parity": false
+  },
+  "final_deliverables": [
+    "private_github_repository",
+    "working_micromamba_environment_and_locks",
+    "report/report.tex",
+    "report/report.pdf",
+    "reproduced_tracer_figure",
+    "raw_benchmark_results",
+    "partial_weather_training_results_if_feasible",
+    "runnable_regression_checks_and_reproduction_commands"
+  ]
+}

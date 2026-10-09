@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from model.advection import NeuralSemiLagrangian
 from model.blocks import GMBlock, PhysicalDownsample, SepConv
 from model.padding import GeoCyclicPadding
+from model.spherical import spatial_conv
 
 
 def get_scaled_timestep(original_timestep_seconds: float) -> float:
@@ -38,13 +39,22 @@ class Paradis(nn.Module):
         self.nlon = lat_grid.shape[1]
 
         mesh_size = (self.nlat, self.nlon)
+        self.spatial_conv = cfg.model.get("spatial_conv", "disco")
+        if self.spatial_conv not in ("conv2d", "disco"):
+            raise ValueError("model.spatial_conv must be conv2d or disco")
+        expected_lat = torch.linspace(-torch.pi / 2, torch.pi / 2, self.nlat)
+        expected_lon = torch.arange(self.nlon) * (2 * torch.pi / self.nlon)
+        if not torch.allclose(lat_grid.cpu(), expected_lat[:, None].expand_as(lat_grid), atol=1e-6):
+            raise ValueError("Latitude must increase uniformly from -90 to +90 degrees")
+        if not torch.allclose(lon_grid.cpu(), expected_lon[None, :].expand_as(lon_grid), atol=1e-6):
+            raise ValueError("Longitude must be uniform, periodic, and start at zero")
 
         hidden_dim = cfg.model.get("latent_size")
 
         self.num_vels = cfg.model.get("velocity_vectors")
 
         adv_interpolation = cfg.model.get("adv_interpolation")
-        bias_channels = cfg.model.get("bias_channels", 4)
+        bias_channels = cfg.model.get("bias_channels", 0)
 
         self.num_layers = max(1, cfg.model.num_layers)
         self.dt = get_scaled_timestep(cfg.model.get("base_dt")) / self.num_layers
@@ -80,17 +90,19 @@ class Paradis(nn.Module):
         diff_ldim = cfg.model.physblock.diffusion.hidden_dim
         reac_ldim = cfg.model.physblock.reaction.hidden_dim
         output_ldim = cfg.model.physblock.output_proj.hidden_dim
-        static_dim = 128
+        static_dim = cfg.model.get("static_latent_size", 128)
+        static_hidden = cfg.model.get("static_hidden_size", 64)
 
         stride = cfg.model.get("coarsening_factor", 1)
-        if stride < 1:
-            raise ValueError("Coarsening factor must be >=1")
+        if stride < 1 or (self.nlat - 1) % stride or self.nlon % (2 * stride):
+            raise ValueError("Coarsening must preserve both poles and an even longitude count")
 
         self.nlat_coarse = (self.nlat - 1) // stride + 1
         self.nlon_coarse = self.nlon // stride
         mesh_size_coarse = (self.nlat_coarse, self.nlon_coarse)
 
         self.input_proj = GMBlock(
+            spatial_conv=self.spatial_conv,
             layers=input_layers,
             input_dim=input_dim,
             output_dim=hidden_dim,
@@ -105,6 +117,7 @@ class Paradis(nn.Module):
         self.velocity_nets = nn.ModuleList(
             [
                 GMBlock(
+                    spatial_conv=self.spatial_conv,
                     layers=vnet_layers,
                     input_dim=hidden_dim,
                     output_dim=2 * self.num_vels,
@@ -136,6 +149,7 @@ class Paradis(nn.Module):
         self.diffusion = nn.ModuleList(
             [
                 GMBlock(
+                    spatial_conv=self.spatial_conv,
                     layers=diffusion_layers,
                     input_dim=hidden_dim,
                     output_dim=hidden_dim,
@@ -152,6 +166,7 @@ class Paradis(nn.Module):
         self.reaction = nn.ModuleList(
             [
                 GMBlock(
+                    spatial_conv=self.spatial_conv,
                     layers=reaction_layers,
                     input_dim=hidden_dim + static_dim,
                     output_dim=hidden_dim,
@@ -166,6 +181,7 @@ class Paradis(nn.Module):
         )
 
         self.output_proj = GMBlock(
+            spatial_conv=self.spatial_conv,
             pre_normalize=True,
             layers=output_layers,
             input_dim=hidden_dim,
@@ -184,12 +200,12 @@ class Paradis(nn.Module):
         self.n_static = n_static = len(cfg.features.input.constants)
 
         self.static_encoder = nn.Sequential(
-            SepConv(n_static, 64, mesh_size, kernel_size=7),
+            SepConv(n_static, static_hidden, mesh_size, kernel_size=7, spatial_conv=self.spatial_conv),
             nn.SiLU(),
-            GeoCyclicPadding(3),
-            nn.Conv2d(64, 64, groups=64, kernel_size=7),
+            GeoCyclicPadding(3) if self.spatial_conv == "conv2d" else nn.Identity(),
+            spatial_conv(static_hidden, static_hidden, mesh_size, 7, groups=static_hidden, backend=self.spatial_conv),
             nn.SiLU(),
-            SepConv(64, static_dim, mesh_size, kernel_size=5),
+            SepConv(static_hidden, static_dim, mesh_size, kernel_size=5, spatial_conv=self.spatial_conv),
         )
 
     def _compile(self):
@@ -253,14 +269,16 @@ class Paradis(nn.Module):
 
         return hidden
 
-    def forward(self, fields):
+    def encode_static(self, constants):
+        return self.downsample(self._apply_checkpoint(self.static_encoder, constants))
+
+    def forward(self, fields, hidden_static=None):
         hidden = self._apply_checkpoint(self.input_proj, fields)
-        hidden_static = self._apply_checkpoint(
-            self.static_encoder, fields[:, -self.n_static:])
+        if hidden_static is None:
+            hidden_static = self.encode_static(fields[:, -self.n_static:])
 
         skip = hidden
         hidden = self.downsample(hidden)
-        hidden_static = self.downsample(hidden_static)
 
         for i in range(self.num_layers):
             hidden = self.step_fn(i, hidden, hidden_static)

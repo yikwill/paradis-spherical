@@ -1,0 +1,30 @@
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------
+                                            aten::copy_        23.25%     409.962ms        23.25%     409.962ms     591.576us           0 B           0 B           693
+                                              aten::bmm        18.66%     329.063ms        18.66%     329.100ms      12.658ms     818.23 MB     818.23 MB            26
+                         disco_kernels::forward_regular        12.48%     220.092ms        17.72%     312.436ms      34.715ms     819.86 MB           0 B             9
+                        disco_kernels::backward_regular         9.53%     168.094ms         9.63%     169.886ms      21.236ms      24.90 MB           0 B             8
+                                            aten::fill_         6.34%     111.780ms         6.34%     111.780ms     488.124us           0 B           0 B           229
+                             aten::convolution_backward         6.07%     107.082ms         6.16%     108.656ms       4.527ms      66.83 MB           0 B            24
+                               aten::mkldnn_convolution         3.30%      58.282ms         3.39%      59.749ms       2.490ms      73.47 MB           0 B            24
+                                         aten::var_mean         1.93%      33.975ms         1.93%      34.062ms       4.866ms     570.00 KB     570.00 KB             7
+                                              aten::mul         1.67%      29.506ms         1.73%      30.459ms     169.216us     271.74 MB     270.63 MB           180
+                                       aten::avg_pool2d         1.53%      27.015ms         1.53%      27.015ms      13.507ms       5.36 MB       5.36 MB             2
+                                              aten::cat         1.33%      23.370ms         1.39%      24.432ms     519.830us     116.84 MB     116.84 MB            47
+                              aten::avg_pool2d_backward         1.28%      22.567ms         1.42%      25.110ms      12.555ms      22.34 MB      22.34 MB             2
+                                              aten::add         1.17%      20.628ms         1.20%      21.155ms     364.745us     152.29 MB     152.29 MB            58
+                                             aten::add_         0.95%      16.807ms         1.03%      18.193ms      79.102us           0 B        -584 B           230
+                         aten::grid_sampler_2d_backward         0.94%      16.497ms         0.94%      16.637ms       8.318ms       5.54 MB           0 B             2
+GeneratedBackwardFor_disco_kernels__disco_s2_contrac...         0.79%      14.017ms        33.07%     583.202ms      72.900ms    -767.81 MB      -1.55 GB             8
+                                              aten::sum         0.67%      11.889ms         0.71%      12.584ms     100.674us     585.29 KB     585.27 KB           125
+                                             aten::flip         0.67%      11.828ms         0.75%      13.170ms     258.242us     102.91 MB           0 B            51
+                                    aten::silu_backward         0.49%       8.675ms         0.49%       8.675ms     667.316us      49.75 MB      49.75 MB            13
+                                             aten::silu         0.43%       7.551ms         0.43%       7.551ms     580.881us      49.75 MB      49.75 MB            13
+                                              aten::sub         0.41%       7.232ms         0.42%       7.363ms     223.127us      64.09 MB      64.09 MB            33
+                     aten::upsample_bilinear2d_backward         0.40%       7.111ms         0.41%       7.214ms       7.214ms       1.80 MB       1.80 MB             1
+                                              aten::div         0.36%       6.377ms         0.49%       8.628ms      61.193us      42.67 MB      42.67 MB           141
+      autograd::engine::evaluate_function: BmmBackward0         0.33%       5.800ms        11.13%     196.337ms      21.815ms     -52.54 MB    -845.31 MB             9
+                              Optimizer.step#AdamW.step         0.32%       5.659ms         0.78%      13.692ms      13.692ms           0 B    -919.45 KB             1
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------
+Self CPU time total: 1.764s

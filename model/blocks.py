@@ -28,6 +28,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from model.padding import GeoCyclicPadding
+from model.spherical import spatial_conv as make_spatial_conv, SphericalConv
 
 
 def init_conv2d_default(conv: nn.Conv2d, *, scale: float = 1.0) -> None:
@@ -42,11 +43,9 @@ def init_conv2d_default(conv: nn.Conv2d, *, scale: float = 1.0) -> None:
 def init_module_convs(m: nn.Module, *, last_conv_scale: float = 1.0) -> None:
     convs = []
     for module in m.modules():
-        # Skip entire GlobalBias subtrees
-        if isinstance(module, GlobalBias):
-            continue
-
-        if isinstance(module, nn.Conv2d):
+        if isinstance(module, (nn.Conv2d, SphericalConv)):
+            if isinstance(module, SphericalConv):
+                module = module.conv
             convs.append(module)
 
     for i, conv in enumerate(convs):
@@ -99,13 +98,14 @@ class SepConv(nn.Module):
         mesh_size: tuple,
         kernel_size: int = 3,
         bias: bool = True,
+        spatial_conv: str = "disco",
     ):
         super().__init__()
         self.padding = (kernel_size - 1) // 2
-        self.geo_padding = GeoCyclicPadding(self.padding)
+        self.geo_padding = GeoCyclicPadding(self.padding) if spatial_conv == "conv2d" else nn.Identity()
 
-        self.depthwise = nn.Conv2d(
-            input_dim, input_dim, kernel_size, groups=input_dim, bias=False
+        self.depthwise = make_spatial_conv(
+            input_dim, input_dim, mesh_size, kernel_size, groups=input_dim, bias=False, backend=spatial_conv
         )
         self.pointwise = nn.Conv2d(input_dim, output_dim, kernel_size=1, bias=bias)
 
@@ -134,76 +134,10 @@ class ChannelNorm(nn.Module):
         return x
 
 
-# LowRankBias -- low-rank factorized bias operator
-class GlobalBias(nn.Module):
-    """
-    LowRankBias -- construct a low-rank factorized bias operator that reduces
-    the number of parameters while maintaining expressiveness through separable
-    rank-K decomposition.
-
-    Uses factors:
-    - A ∈ R^{C_in×K} (per-channel coefficients)
-    - U ∈ R^{K×H} (latitudinal factors)
-    - V ∈ R^{K×W} (longitudinal factors)
-
-    The bias map is computed as: y_c = ∑_{k=1}^K A_{ck} u_k v_k^T
-    With optional projection to output channels.
-
-    Parameters: K*(C_in + H + W) vs C_in*H*W for GlobalBias
-    """
-
-    def __init__(
-        self,
-        input_dim: int,
-        output_dim: int,
-        *,
-        bias: bool = True,  # Not used (would be redundant)
-        kernel_size: int = 0,  # Not used
-        mesh_size: Tuple[int, int],  # required
-        rank: int = 128,  # K - rank of the factorization
-    ):
-        super().__init__()
-
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.rank = rank
-        self.height, self.width = mesh_size
-
-        # Factor matrices
-        self.A = nn.Parameter(torch.zeros(input_dim, rank), requires_grad=True)
-        self.U = nn.Parameter(torch.zeros(rank, self.height), requires_grad=True)
-        self.V = nn.Parameter(torch.zeros(rank, self.width), requires_grad=True)
-
-        with torch.no_grad():
-            nn.init.normal_(self.A, mean=0.0, std=1e-3)
-            nn.init.normal_(self.U, mean=0.0, std=1e-3)
-            nn.init.normal_(self.V, mean=0.0, std=1e-3)
-
-        # Optional projection to output channels
-        if input_dim != output_dim:
-            self.projection = nn.Linear(input_dim, output_dim, bias=False)
-        else:
-            self.projection = None
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # bias_maps: [C_in, H, W]
-        bias_maps = torch.einsum("ck,kh,kw->chw", self.A, self.U, self.V)
-
-        if self.projection is not None:
-            # [C_out, H, W]
-            bias_maps = torch.einsum("oc,chw->ohw", self.projection.weight, bias_maps)
-
-        # x: [B, C_out, H, W] (or [B, C_in, H, W] if no projection)
-        return x + bias_maps.unsqueeze(0)
-
-
-
-
 BLOCK_REGISTRY = {
     "SepConv": SepConv,
     "CLinear": CLinear,
     "ChannelNorm": ChannelNorm,
-    "GlobalBias": GlobalBias,
 }
 
 
@@ -223,9 +157,12 @@ class GMBlock(nn.Sequential):
         hidden_dim: Union[Sequence, int] = 0,
         activation_fn: Type[nn.Module] = nn.SiLU,
         bias_channels: int = 0,
+        spatial_conv: str = "disco",
         activation: Union[Sequence, bool] = False,
         pre_normalize: bool = False,
     ):
+        if bias_channels:
+            raise ValueError("Learned spatial biases are disabled; set model.bias_channels=0")
         num_layers = len(layers)
         if num_layers == 0:
             raise ValueError("GMBlock: must specify at least one layer")
@@ -280,20 +217,9 @@ class GMBlock(nn.Sequential):
                 output_dim=layer_out_size,
                 mesh_size=mesh_size,
                 kernel_size=kernel_size[idx],
+                **({"spatial_conv": spatial_conv} if ltype is SepConv else {}),
             )
             blocks.append((layer_name, layer_obj))
-
-            if idx == 0 and bias_channels > 0:
-                blocks.append(
-                    (
-                        f"0-GlobalBias",
-                        GlobalBias(
-                            input_dim=bias_channels,
-                            output_dim=layer_out_size,
-                            mesh_size=mesh_size,
-                        ),
-                    )
-                )
 
             if activation[idx]:
                 blocks.append((f"{idx}-{activation_fn.__name__}", activation_fn()))

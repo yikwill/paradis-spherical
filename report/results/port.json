@@ -1,0 +1,9 @@
+{
+  "output_max_abs_error": 0.0,
+  "loss_abs_error": 0.0,
+  "gradient_max_abs_error": 0.0,
+  "update_max_abs_error": 0.0,
+  "forecast_steps": 2,
+  "accumulated_batches": 2,
+  "status": "passed"
+}

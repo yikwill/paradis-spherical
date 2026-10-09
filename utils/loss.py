@@ -204,29 +204,17 @@ class ParadisLoss(torch.nn.Module):
                 len(self.pressure_levels), dtype=torch.float32
             )
 
-        # Process atmospheric variables (with pressure levels)
-        for i in range(0, self.num_atmospheric_vars, self.num_levels):
-
-            # Get the variable name independent of pressure level
-            var_name = re.sub(r"_h\d+$", "", self.output_name_order[i])
-
-            # Get the base weights for this variable
-            base_weights = self.var_loss_weights[i : i + self.num_levels]
-
-            # Multiply by pressure weights
-            if self.flip_geopotential_weights and var_name == "geopotential":
-                feature_weights[i : i + self.num_levels] = (
-                    base_weights * pressure_weights.flip(0)
-                )
-            else:
-                feature_weights[i : i + self.num_levels] = (
-                    base_weights * pressure_weights
-                )
-
-        # Process surface variables
-        feature_weights[self.num_atmospheric_vars :] = self.var_loss_weights[
-            self.num_atmospheric_vars :
-        ]
+        # Common-first feature ordering interleaves surface and atmospheric fields.
+        level_weights = dict(zip(self.pressure_levels.tolist(), pressure_weights))
+        flipped = dict(zip(self.pressure_levels.tolist(), pressure_weights.flip(0)))
+        for i, name in enumerate(self.output_name_order):
+            match = re.fullmatch(r"(.+)_h(\d+)", name)
+            weight = self.var_loss_weights[i]
+            if match:
+                variable, level = match.groups()
+                factors = flipped if self.flip_geopotential_weights and variable == "geopotential" else level_weights
+                weight = weight * factors[int(level)]
+            feature_weights[i] = weight
 
         return feature_weights
 

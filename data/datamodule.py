@@ -1,8 +1,7 @@
-"""Lightning data module for ERA5 dataset."""
+"""Dataset and DataLoader construction for ERA5."""
 
 import logging
 
-import lightning as L
 from omegaconf import DictConfig
 import torch
 from torch.utils.data import DataLoader
@@ -10,7 +9,7 @@ from torch.utils.data import DataLoader
 from data.era5_dataset import ERA5Dataset
 
 
-class Era5DataModule(L.LightningDataModule):
+class Era5DataModule:
     def __init__(self, cfg: DictConfig) -> None:
         super().__init__()
 
@@ -21,7 +20,7 @@ class Era5DataModule(L.LightningDataModule):
         self.forecast_steps = cfg.model.forecast_steps
         self.num_workers = cfg.compute.num_workers
 
-        if (val_workers := cfg.compute.get("val_num_workers", -1))> 0:
+        if (val_workers := cfg.compute.get("val_num_workers", -1)) >= 0:
             self.val_num_workers = val_workers
         else:
             self.val_num_workers = self.num_workers
@@ -134,7 +133,7 @@ class Era5DataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=True,
-            pin_memory=True,
+            pin_memory=self.cfg.compute.accelerator in ("gpu", "cuda"),
             drop_last=self.drop_last,
             persistent_workers=self.num_workers > 0,
         )
@@ -147,7 +146,7 @@ class Era5DataModule(L.LightningDataModule):
             num_workers=self.val_num_workers,
             # Shuffle if we're using less than all validation data
             shuffle=self.cfg.training.validation_dataset.validation_batches is not None,
-            pin_memory=True,
+            pin_memory=self.cfg.compute.accelerator in ("gpu", "cuda"),
             drop_last=self.drop_last,
             persistent_workers=self.val_num_workers > 0,
         )
@@ -159,6 +158,6 @@ class Era5DataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
-            pin_memory=True,
+            pin_memory=self.cfg.compute.accelerator in ("gpu", "cuda"),
             drop_last=False,
         )

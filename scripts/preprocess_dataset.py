@@ -8,10 +8,9 @@ import os
 import time
 import sys
 from numcodecs import Blosc, BitRound
-from layerquantizer import LayerQuantizer
 
 # Main compressor for stacked float32 meteorological tensors
-compressor = LayerQuantizer()
+compressor = Blosc(cname="zstd", clevel=5, shuffle=Blosc.SHUFFLE)
 fallback_compressor = Blosc(cname="zstd", clevel=5, shuffle=Blosc.SHUFFLE)
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

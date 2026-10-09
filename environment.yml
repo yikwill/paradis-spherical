@@ -1,0 +1,21 @@
+name: paradis-spherical
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - setuptools>=77
+  - setuptools-scm
+  - cxx-compiler
+  - ninja
+  - numpy
+  - scipy
+  - pandas
+  - xarray
+  - zarr>=2,<3
+  - numcodecs
+  - dask
+  - gcsfs
+  - hydra-core
+  - matplotlib
+  - pyyaml

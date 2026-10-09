@@ -1,11 +1,12 @@
 import argparse
 import logging
 from omegaconf import OmegaConf
-import lightning as L
 import torch
 
-from trainer import LitParadis
+from trainer import ParadisTask, load_checkpoint, move_batch
 from data.datamodule import Era5DataModule
+from utils.system import setup_system
+from utils.file_output import ZarrForecastWriter
 
 torch.set_float32_matmul_precision("high")
 
@@ -94,24 +95,106 @@ def main():
     datamodule = Era5DataModule(cfg)
     datamodule.setup(stage="predict")
 
-    model = LitParadis(datamodule, cfg)
+    if args.num_devices != 1:
+        raise ValueError("Forecast file writing currently supports one device")
+    setup_system(cfg)
+    device = torch.device("cuda" if cfg.compute.accelerator in ("gpu", "cuda") else "cpu")
+    model = ParadisTask(datamodule, cfg).to(device).eval()
+    load_checkpoint(cfg.init.checkpoint_path, model)
+    writer = ZarrForecastWriter(cfg, datamodule.dataset)
+    writer.init_store(datamodule.dataset)
+    with torch.inference_mode():
+        for batch in datamodule.predict_dataloader():
+            predict_batch(model, move_batch(batch, device), writer)
 
-    trainer = L.Trainer(
-        accelerator=cfg.compute.accelerator,
-        devices=cfg.compute.num_devices,
-        num_nodes=cfg.compute.num_nodes,
-        precision="16-mixed" if cfg.compute.use_amp else "32-true",
-        logger=False,
-        enable_checkpointing=False,
+
+
+def predict_batch(self, batch, writer):
+    sample_indices, input_data, forcings, constant_data = batch
+
+    dataset = self.datamodule.dataset
+
+    num_forecast_steps = self.cfg.model.forecast_steps
+    output_frequency = self.cfg.forecast.output_frequency
+    write_every_n = self.cfg.forecast.get("write_every_n", num_forecast_steps)
+
+    from utils.postprocessing import (
+        denormalize_datasets,
+        convert_cartesian_to_spherical_winds,
     )
 
-    trainer.predict(
-        model,
-        datamodule=datamodule,
-        return_predictions=False,
-        ckpt_path=cfg.init.checkpoint_path,
-    )
+    output_features = list(dataset.dyn_output_features)
+    constants = constant_data[:, :1].permute(0, 1, 4, 2, 3)
+    hidden_static = self.model.encode_static(constants[:, 0])
 
+    chunk_buffer = []
+    chunk_start_idx = None
+    stored_step_idx = 0
+
+    for step in range(num_forecast_steps):
+        forcings_step = forcings[:, step].unsqueeze(1).permute(0, 1, 4, 2, 3)
+
+        model_input = torch.cat(
+            [input_data, forcings_step, constants], dim=2
+        ).squeeze(1)
+        output_data = self(model_input, hidden_static=hidden_static)
+
+        input_data = self._autoregression_next_input(
+            model_input, output_data
+        ).unsqueeze(1)
+
+        if step % output_frequency == 0:
+            if chunk_start_idx is None:
+                chunk_start_idx = stored_step_idx
+
+            chunk_buffer.append(output_data.detach())
+            stored_step_idx += 1
+
+            if len(chunk_buffer) == write_every_n:
+                chunk_tensor = torch.stack(chunk_buffer, dim=1).cpu()
+                denormalize_datasets(None, chunk_tensor, dataset)
+
+                chunk_np = chunk_tensor.numpy()
+                convert_cartesian_to_spherical_winds(
+                    dataset.lat, dataset.lon, self.cfg, chunk_np, output_features
+                )
+
+                writer.write_forecast_chunk(
+                    forecast=chunk_np,
+                    sample_indices=(
+                        None
+                        if sample_indices is None
+                        else sample_indices.cpu().numpy()
+                    ),
+                    start_idx=chunk_start_idx,
+                    dataset=dataset,
+                )
+
+                del chunk_tensor, chunk_np
+                chunk_buffer.clear()
+                chunk_start_idx = None
+
+        del output_data
+
+    if chunk_buffer:
+        chunk_tensor = torch.stack(chunk_buffer, dim=1).cpu()
+        denormalize_datasets(None, chunk_tensor, dataset)
+
+        chunk_np = chunk_tensor.numpy()
+        convert_cartesian_to_spherical_winds(
+            dataset.lat, dataset.lon, self.cfg, chunk_np, output_features
+        )
+
+        writer.write_forecast_chunk(
+            forecast=chunk_np,
+            sample_indices=(
+                None if sample_indices is None else sample_indices.cpu().numpy()
+            ),
+            start_idx=chunk_start_idx,
+            dataset=dataset,
+        )
+
+    return None
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

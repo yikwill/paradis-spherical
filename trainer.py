@@ -1,980 +1,362 @@
-import logging
+"""Native PyTorch autoregressive training, validation, and resumable checkpoints."""
+import contextlib
+import json
+import math
+import os
+from pathlib import Path
+import random
 import re
+import subprocess
 import time
-from collections import defaultdict, OrderedDict
 
-import lightning as L
-from lightning.pytorch.utilities import rank_zero_only
-import omegaconf.dictconfig
+import numpy as np
+from omegaconf import OmegaConf
 import torch
-import torch.nn as nn
-from torch.utils.checkpoint import checkpoint
+from torch import nn
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data import DataLoader, DistributedSampler
 
-from data.datamodule import Era5DataModule
 from model.paradis import Paradis
 from utils.loss import ParadisLoss
-from utils.normalization import denormalize_humidity, denormalize_precipitation
-from utils.file_output import ZarrForecastWriter
-
-# Configure torch.compile to handle dynamic shapes in Muon/NorMuon optimizers
-torch._dynamo.config.cache_size_limit = 64
-torch._dynamo.config.force_parameter_static_shapes = False
 
 
 def build_adamw_param_groups(model, lr, weight_decay, gate_lr_mult=10.0):
-    base_params = []
-    gate_params = []
-    seen = set()
-
-    gate_names = {"alpha_adv", "alpha_diff", "alpha_reac"}
-
-    for name, p in model.named_parameters():
-        if not p.requires_grad or id(p) in seen:
-            continue
-
-        top_level_name = name.split(".")[0]
-        if top_level_name in gate_names:
-            gate_params.append(p)
-        else:
-            base_params.append(p)
-
-        seen.add(id(p))
-
-    param_groups = [
-        dict(
-            params=base_params,
-            algorithm="adamw",
-            lr=lr,
-            weight_decay=weight_decay,
-        )
-    ]
-
-    if gate_params:
-        param_groups.append(
-            dict(
-                params=gate_params,
-                algorithm="adamw",
-                lr=lr * gate_lr_mult,
-                weight_decay=0.0,
-            )
-        )
-
-    return param_groups
+    gates, base = [], []
+    for name, parameter in model.named_parameters():
+        if parameter.requires_grad:
+            (gates if name.split(".")[0] in {"alpha_adv", "alpha_diff", "alpha_reac"}
+             else base).append(parameter)
+    groups = [dict(params=base, lr=lr, weight_decay=weight_decay)]
+    if gates:
+        groups.append(dict(params=gates, lr=lr * gate_lr_mult, weight_decay=0.0))
+    return groups
 
 
-def build_param_groups(model, lr, weight_decay, optimizer_name):
-    muon_params = []
-    adamw_params = []
-    seen = set()
-
-    for module_name, module in model.named_modules():
-        # Muon: standard hidden-layer weights
-        if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d)):
-            if (
-                getattr(module, "weight", None) is not None
-                and module.weight.requires_grad
-            ):
-                muon_params.append(module.weight)
-                seen.add(id(module.weight))
-
-            if getattr(module, "bias", None) is not None and module.bias.requires_grad:
-                adamw_params.append(module.bias)
-                seen.add(id(module.bias))
-
-    # Everything else defaults to AdamW
-    for name, p in model.named_parameters():
-        if not p.requires_grad or id(p) in seen:
-            continue
-        adamw_params.append(p)
-        seen.add(id(p))
-
-    return [
-        dict(
-            params=muon_params,
-            algorithm=optimizer_name,
-            lr=lr,
-            weight_decay=weight_decay,
-            flatten=True,
-        ),
-        dict(
-            params=adamw_params,
-            algorithm="adamw",
-            lr=lr,
-            weight_decay=weight_decay,
-        ),
-    ]
+def configure_optimizers(model, cfg, total_steps):
+    settings = cfg.training
+    opt = settings.optimizer
+    if opt.name != "adamw":
+        raise ValueError("This reproduction supports the native AdamW optimizer")
+    parameters = (build_adamw_param_groups(model, opt.lr, opt.weight_decay)
+                  if opt.get("custom_adamw", True) else model.parameters())
+    optimizer = torch.optim.AdamW(parameters, lr=opt.lr, weight_decay=opt.weight_decay,
+                                  betas=(opt.beta1, opt.beta2))
+    schedules = settings.scheduler
+    if sum(s.enabled for s in schedules.values()) != 1:
+        raise ValueError("Exactly one learning-rate scheduler must be enabled")
+    if schedules.one_cycle.enabled:
+        s = schedules.one_cycle
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, total_steps=total_steps, max_lr=opt.lr,
+            pct_start=s.warmup_pct_start, div_factor=s.lr_div_factor,
+            final_div_factor=s.lr_final_div, anneal_strategy="cos")
+    elif schedules.reduce_lr.enabled:
+        s = schedules.reduce_lr
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, factor=s.factor, patience=s.patience, threshold=s.threshold,
+            threshold_mode=s.threshold_mode, min_lr=s.min_lr)
+    else:
+        s = schedules.wsd
+        warmup = s.warmup if s.warmup >= 1 else s.warmup * total_steps
+        decay = s.decay if s.decay >= 1 else s.decay * total_steps
+        if warmup < 0 or decay < 0 or warmup + decay > total_steps:
+            raise ValueError("Warmup and decay must fit inside the training budget")
+        def multiplier(step):
+            if step < warmup:
+                return (step + 1) / warmup
+            if step <= total_steps - decay:
+                return 1.0
+            return max(0, (total_steps - step) / decay)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, multiplier)
+    return optimizer, scheduler
 
 
-def _strip_orig_mod_prefix(state_dict: dict[str, torch.Tensor]) -> OrderedDict:
-    fixed = OrderedDict()
-    for k, v in state_dict.items():
-        new_k = k.replace("._orig_mod.", ".")
-        # also handle rare case where the key starts with "_orig_mod."
-        if new_k.startswith("_orig_mod."):
-            new_k = new_k[len("_orig_mod.") :]
-        fixed[new_k] = v
-    return fixed
-
-
-class LitParadis(L.LightningModule):
-    """Lightning module for Paradis model training."""
-
-    model: torch.nn.Module
-
-    def __init__(
-        self, datamodule: Era5DataModule, cfg: omegaconf.dictconfig.DictConfig
-    ) -> None:
-        """Initialize the training module.
-
-        Args:
-            datamodule: Lightning datamodule containing dataset information
-            cfg: Model configuration dictionary
-        """
+class ParadisTask(nn.Module):
+    def __init__(self, datamodule, cfg, model=None):
         super().__init__()
-
-        # Instantiate the model
-        self.min_dt = 1e10
-        self.datamodule = datamodule
-        lat_grid = datamodule.dataset.lat_rad_grid
-        lon_grid = datamodule.dataset.lon_rad_grid
-        self.model = Paradis(datamodule, cfg, lat_grid, lon_grid)
         self.cfg = cfg
-        self.n_inputs = cfg.dataset.n_time_inputs
-        self.gradient_checkpoint = cfg.compute.gradient_checkpointing
-
-        # Log metrics
-        num_parameters = sum(
-            p.numel() for p in self.model.parameters() if p.requires_grad
-        )
-
-        if self.global_rank == 0:
-            logging.info("Number of trainable parameters: {:,}".format(num_parameters))
-
-        # Access output_name_order from configuration
-        self.output_name_order = datamodule.output_name_order
-
-        num_levels = len(cfg.features.pressure_levels)
-
-        # Construct variable loss weight tensor from YAML configuration
-        atmospheric_weights = torch.tensor(
-            [
-                cfg.training.variable_loss_weights.atmospheric[var]
-                for var in cfg.features.output.atmospheric
-            ],
-            dtype=torch.float32,
-        )
-
-        surface_weights = torch.tensor(
-            [
-                cfg.training.variable_loss_weights.surface[var]
-                for var in cfg.features.output.surface
-            ],
-            dtype=torch.float32,
-        )
-
-        # Create a mapping of variable names to their weights
-        atmospheric_vars = cfg.features.output.atmospheric
-        surface_vars = cfg.features.output.surface
-        var_name_to_weight = {
-            **{var: atmospheric_weights[i] for i, var in enumerate(atmospheric_vars)},
-            **{var: surface_weights[i] for i, var in enumerate(surface_vars)},
-        }
-
-        # Initialize reordered weights tensor
-        num_features = len(atmospheric_weights) * num_levels + len(surface_weights)
-
-        var_loss_weights_reordered = torch.zeros(
-            datamodule.num_out_features,
-            dtype=torch.float32,
-        )
-
-        for i, feature in enumerate(datamodule.output_name_order):
-            var_name = re.sub(r"_h\d+$", "", feature)
-
-            if var_name in cfg.training.variable_loss_weights.atmospheric:
-                var_loss_weights_reordered[i] = (
-                    cfg.training.variable_loss_weights.atmospheric[var_name]
-                )
-            elif var_name in cfg.training.variable_loss_weights.surface:
-                var_loss_weights_reordered[i] = (
-                    cfg.training.variable_loss_weights.surface[var_name]
-                )
-            else:
-                raise ValueError(
-                    f"No loss weight configured for output feature '{feature}' "
-                    f"(base variable '{var_name}')."
-                )
-
-        if var_loss_weights_reordered.numel() != datamodule.num_out_features:
-            raise ValueError(
-                f"Loss weight count mismatch: got {var_loss_weights_reordered.numel()}, "
-                f"expected {datamodule.num_out_features}."
-            )
-
-        # Initialize loss function with delta schedule parameters
-        if not cfg.forecast.enable:
-            self.loss_fn = ParadisLoss(
-                loss_function=cfg.training.loss_function.type,
-                lat_grid=datamodule.lat,
-                pressure_levels=torch.tensor(
-                    cfg.features.pressure_levels, dtype=torch.float32
-                ),
-                num_features=datamodule.num_out_features,
-                num_surface_vars=len(cfg.features.output.surface),
-                var_loss_weights=var_loss_weights_reordered,
-                output_name_order=datamodule.output_name_order,
-                delta_loss=cfg.training.loss_function.delta_loss,
-                apply_latitude_weights=cfg.training.loss_function.lat_weights,
-            )
-
-            # Possibly use a different loss for validation
-            validation_loss_type = cfg.training.loss_function.get(
-                "validation_loss", None
-            )
-            if validation_loss_type is not None:
-
-                self.val_loss_fn = ParadisLoss(
-                    loss_function=validation_loss_type,
-                    lat_grid=datamodule.lat,
-                    pressure_levels=torch.tensor(
-                        cfg.features.pressure_levels, dtype=torch.float32
-                    ),
-                    num_features=datamodule.num_out_features,
-                    num_surface_vars=len(cfg.features.output.surface),
-                    var_loss_weights=var_loss_weights_reordered,
-                    output_name_order=datamodule.output_name_order,
-                    delta_loss=cfg.training.loss_function.delta_loss,
-                    apply_latitude_weights=cfg.training.loss_function.lat_weights,
-                )
-
-            else:
-                self.val_loss_fn = self.loss_fn
-
-            self.detach_gradient_every = cfg.training.optimizer.get(
-                "detach_gradient_every", None
-            )
-
-            self.automatic_optimization = False
-
+        self.datamodule = datamodule
+        self.model = model if model is not None else Paradis(
+            datamodule, cfg, datamodule.dataset.lat_rad_grid, datamodule.dataset.lon_rad_grid)
         self.num_common_features = datamodule.num_common_features
-        self.print_losses = cfg.training.print_losses
-
-        # Load weights only but reset lightning configuration
-        if (cfg.init.checkpoint_path and not cfg.init.restart): # or cfg.forecast.enable:
-            # Load into CPU, then Lightning will transfer to GPU
-            checkpoint = torch.load(
-                cfg.init.checkpoint_path, weights_only=False, map_location="cpu"
-            )
-
-            sd = checkpoint["state_dict"]
-
-            # # Make sure model can read checkpoint whether it has been previously compiled or not
-            sd = _strip_orig_mod_prefix(sd)
-
-            # # # Interpolate GlobalBias parameters for resolution change
-            # # # We look for any keys ending in .U or .V belonging to a GlobalBias module
-            for k in list(sd.keys()):
-                if k.endswith(".U") or k.endswith(".V"):
-                    old_param = sd[k]  # Shape: [rank, old_size]
-
-                    # Determine target size from the current model's parameters
-                    # self.state_dict() reflects the NEW 0.25 degree initialization
-                    target_size = self.state_dict()[k].shape[-1]
-
-                    if old_param.shape[-1] != target_size:
-                        # unsqueeze to [1, rank, old_size] for F.interpolate
-                        # then interpolate to [1, rank, target_size]
-                        new_param = torch.nn.functional.interpolate(
-                            old_param.unsqueeze(0),
-                            size=target_size,
-                            mode="linear",
-                            align_corners=True,
-                        ).squeeze(0)
-
-                        sd[k] = new_param
-                        print(
-                            f"Interpolated {k}: {old_param.shape[-1]} -> {target_size}"
-                        )
-
-            self.load_state_dict(sd, strict=True)
-
-        # Compile model in place
-        if cfg.compute.compile == True:
-            self.model.compile(
-                mode="default",
-                fullgraph=True,
-                dynamic=False,
-                backend="inductor",
-            )
-        elif cfg.compute.compile == "modules":
-            self.model._compile()
-
-        self.epoch_start_time = None
-
-        # Store the index and stats of the report quantities
-        self.enable_reports = cfg.training.reports.enable
-        if not cfg.forecast.enable and self.enable_reports:
-            self.report_features = cfg.training.reports.features
-            self.report_ind = [
-                datamodule.dataset.dyn_input_features.index(feature)
-                for feature in cfg.training.reports.features
-            ]
-            self.report_ind = torch.tensor(self.report_ind, dtype=torch.long)
-            self.report_mean = torch.from_numpy(datamodule.dataset.report_stats["mean"])
-            self.report_std = torch.from_numpy(datamodule.dataset.report_stats["std"])
-
-        self.custom_norms = not cfg.normalization.standard
-        self.log_statistics = cfg.training.get("log_additional_stats", False)
-
-        if cfg.forecast.enable:
-            self.forecast_writer = ZarrForecastWriter(cfg, datamodule.dataset)
-
-    def _get_report_rmse(self, output_data, pred_data):
-        lat_weights = self.loss_fn.lat_weights.view(1, 1, -1, 1).to(output_data.device)
-
-        errors = torch.empty(
-            len(self.report_ind), dtype=output_data.dtype, device=output_data.device
-        )
-        for i, ind in enumerate(self.report_ind):
-            if self.custom_norms and "specific_humidity" in self.report_features[i]:
-                q_min = self.datamodule.dataset.q_min
-                q_max = self.datamodule.dataset.q_max
-                o_data = denormalize_humidity(output_data[:, ind], q_min, q_max)
-                p_data = denormalize_humidity(pred_data[:, ind], q_min, q_max)
-                errors[i] = torch.mean((o_data - p_data) ** 2 * lat_weights)
-            elif self.custom_norms and "precipitation" in self.report_features[i]:
-                o_data = denormalize_precipitation(output_data[:, ind])
-                p_data = denormalize_precipitation(pred_data[:, ind])
-                errors[i] = torch.mean((o_data - p_data) ** 2 * lat_weights)
-            else:
-                errors[i] = torch.mean(
-                    ((output_data[:, ind] - pred_data[:, ind]) * self.report_std[i])
-                    ** 2
-                    * lat_weights
-                )
-
-        return torch.sqrt(errors).detach()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the model."""
-        if self.cfg.model.forecast_steps > 1:
-            return self._apply_checkpoint(self.model, x)
-        return self.model(x)
-
-    def configure_optimizers(self):  # type: ignore
-        """Configure optimizer and learning rate scheduler."""
-        cfg = self.cfg.training
-
-        if cfg.optimizer.name == "adamw":
-
-            if cfg.optimizer.get("custom_adamw", True):
-                param_groups = build_adamw_param_groups(
-                    self.model,
-                    lr=cfg.optimizer.lr,
-                    weight_decay=cfg.optimizer.weight_decay,
-                )
-            else:
-                param_groups = self.model.parameters()
-
-            optimizer = torch.optim.AdamW(
-                param_groups,
-                lr=cfg.optimizer.lr,
-                weight_decay=cfg.optimizer.weight_decay,
-                betas=(cfg.optimizer.beta1, cfg.optimizer.beta2),
-            )
-
-        elif "muon" in cfg.optimizer.name:
-            from dion import Muon, NorMuon
-
-            param_groups = build_param_groups(
-                self.model,
-                lr=cfg.optimizer.lr,
-                weight_decay=cfg.optimizer.weight_decay,
-                optimizer_name=cfg.optimizer.name,
-            )
-
-            if cfg.optimizer.name == "muon":
-                optimizer = Muon(
-                    param_groups,
-                    lr=cfg.optimizer.lr,
-                    weight_decay=cfg.optimizer.weight_decay,
-                    betas=(cfg.optimizer.beta1, cfg.optimizer.beta2),
-                    use_triton=True,
-                )
-            elif cfg.optimizer.name == "normuon":
-                optimizer = NorMuon(
-                    param_groups,
-                    lr=cfg.optimizer.lr,
-                    weight_decay=cfg.optimizer.weight_decay,
-                    betas=(cfg.optimizer.beta1, cfg.optimizer.beta2),
-                    use_triton=True,
-                )
-            else:
-                raise ValueError(f"Optimizer {cfg.optimizer.name} not supported. Choose between normuon|muon")
-
-        enabled_schedulers = sum(
-            [
-                cfg.scheduler.one_cycle.enabled,
-                cfg.scheduler.reduce_lr.enabled,
-                cfg.scheduler.wsd.enabled,
-            ]
-        )
-
-        # Ensure only one is enabled
-        if enabled_schedulers != 1:
-            raise ValueError(
-                f"Invalid config: Exactly one scheduler must "
-                + f"be enabled, but found {enabled_schedulers} enabled."
-            )
-
-        if cfg.scheduler.one_cycle.enabled:
-            scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                optimizer,
-                total_steps=int(self.trainer.estimated_stepping_batches),
-                max_lr=cfg.optimizer.lr,
-                pct_start=cfg.scheduler.one_cycle.warmup_pct_start,
-                div_factor=cfg.scheduler.one_cycle.lr_div_factor,
-                final_div_factor=cfg.scheduler.one_cycle.lr_final_div,
-                anneal_strategy="cos",
-            )
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {"scheduler": scheduler, "interval": "step"},
-            }
-
-        elif cfg.scheduler.reduce_lr.enabled:
-
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer,
-                mode="min",
-                factor=cfg.scheduler.reduce_lr.factor,
-                patience=cfg.scheduler.reduce_lr.patience,
-                threshold=cfg.scheduler.reduce_lr.threshold,
-                threshold_mode=cfg.scheduler.reduce_lr.threshold_mode,
-                min_lr=cfg.scheduler.reduce_lr.min_lr,
-            )
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "monitor": "val_loss_epoch",  # Monitor epoch-level validation loss
-                    "interval": "epoch",  # When the scheduler should make decisions
-                    "frequency": 1,
-                },
-            }
-        elif cfg.scheduler.wsd.enabled:
-            total_steps = self.trainer.estimated_stepping_batches
-
-            # Set warmup and decay periods
-            if cfg.scheduler.wsd.warmup >= 1:
-                # Value >= 1, so it's a number of steps
-                warmup_steps = cfg.scheduler.wsd.warmup
-            else:
-                warmup_steps = cfg.scheduler.wsd.warmup * total_steps
-
-            if cfg.scheduler.wsd.decay >= 1:
-                # Value >= 1, so it's a number of steps
-                decay_steps = cfg.scheduler.wsd.decay
-            else:
-                decay_steps = cfg.scheduler.wsd.decay * total_steps
-
-            # Sanity checks
-            assert warmup_steps >= 0
-            assert decay_steps >= 0
-            assert warmup_steps + decay_steps <= total_steps
-
-            steady_steps = total_steps - (warmup_steps + decay_steps)
-
-            def lr_lambda(step):
-                if step < warmup_steps:
-                    # Increasing learning rate phase
-                    return (step + 1) / warmup_steps
-                elif step <= warmup_steps + steady_steps:
-                    # Constant learning rate
-                    return 1.0
-                else:
-                    # Decay learning rate
-                    decay_ratio = (total_steps - step) / decay_steps
-                    return decay_ratio  # Linear decay
-
-            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {"scheduler": scheduler, "interval": "step"},
-            }
-        else:
-            # No known scheduler was active
-            active_schedulers = [
-                k for (k, v) in cfg.scheduler.items() if "enabled" in v and v["enabled"]
-            ]
-            if len(active_schedulers) == 0:
-                # Should not happen if enabled_schedulers check above is still present
-                raise ValueError(f"No scheduler activated")
-            else:
-                raise ValueError(
-                    f'Unknown schedule activated: {", ".join(active_schedulers)}'
-                )
-
-    @rank_zero_only
-    def on_fit_start(self):
-        total = sum(p.numel() for p in self.parameters())
-
-        if self.logger and hasattr(self.logger, "experiment"):
-            tb = self.logger.experiment
-            tb.add_scalar("model/num_parameters", total, global_step=0)
-
-    def on_predict_start(self):
-        if not self.cfg.forecast.enable:
-            return
-
-        if self.trainer.is_global_zero and not self.forecast_writer.store_initialized:
-            self.forecast_writer.init_store(self.datamodule.dataset)
-
-        self.trainer.strategy.barrier()
-
-    def on_train_epoch_start(self):
-        """Record the start time of the epoch."""
-        if self.print_losses:
-            self.epoch_start_time = time.time()
-
-    def _apply_checkpoint(self, func, *args):
-        if self.gradient_checkpoint:
-            return checkpoint(func, *args, use_reentrant=False)
-        else:
-            return func(*args)
-
-    def training_step(self, batch, batch_idx):
-        input_data, true_data, forcings, constant_data = batch
-
-        opt = self.optimizers()
-
-        grad_accum_steps = self.cfg.training.get("accumulate_grad_batches", 1)
-
-        if batch_idx % grad_accum_steps == 0:
-            opt.zero_grad()
-
-        constants = constant_data[:, :1].permute(0, 1, 4, 2, 3)
-        forcings = forcings.permute(0, 1, 4, 2, 3)
-
-        num_steps = true_data.size(1)
-
-        train_loss_for_logging = 0.0
-        chunk_loss = 0.0
-
-        detach_every_n = self.detach_gradient_every
-        scheduler = self.lr_schedulers()
-
-        if self.log_statistics:
-            train_channel_loss_weighted = torch.zeros(
-                self.loss_fn.num_features,
-                device=self.device,
-                dtype=torch.float32
-            )
-
-            train_channel_loss_unweighted = torch.zeros(
-                self.loss_fn.num_features,
-                device=self.device,
-                dtype=torch.float32
-            )
-
-        for step in range(num_steps):
-            forcings_step = forcings[:, step].unsqueeze(1)
-
-            model_input = torch.cat(
-                [input_data, forcings_step, constants], dim=2
-            ).squeeze(1)
-
-            output_data = self(model_input)
-
-            loss = self.loss_fn(output_data, true_data[:, step])
-
-            if self.log_statistics:
-                with torch.no_grad():
-                    train_channel_loss_weighted += self.loss_fn.per_channel_loss(
-                        output_data,
-                        true_data[:, step],
-                        weighted=True,
-                    ).float()
-
-                    train_channel_loss_unweighted += self.loss_fn.per_channel_loss(
-                        output_data,
-                        true_data[:, step],
-                        weighted=False,
-                    ).float()
-
-            train_loss_for_logging = train_loss_for_logging + loss.detach()
-
-            chunk_loss = chunk_loss + loss / (num_steps * grad_accum_steps)
-
-            input_data = self._autoregression_next_input(
-                model_input, output_data,
-            ).unsqueeze(1)
-
-            should_backward_chunk = (
-                detach_every_n is not None
-                and (step + 1) % detach_every_n == 0
-            )
-
-            is_last_step = step == num_steps - 1
-
-            if should_backward_chunk or is_last_step:
-                self.manual_backward(chunk_loss)
-                input_data = input_data.detach()
-                chunk_loss = 0.0
-
-        is_last_batch = self.trainer.is_last_batch
-
-        should_step_optimizer = (
-            (batch_idx + 1) % grad_accum_steps == 0
-            or is_last_batch
-        )
-
-        if should_step_optimizer:
-            opt.step()
-            scheduler.step()
-
-        train_loss = train_loss_for_logging / num_steps
-
-        if self.log_statistics:
-            train_channel_loss_weighted = train_channel_loss_weighted / num_steps
-            train_channel_loss_unweighted = train_channel_loss_unweighted / num_steps
-
-            channel_metrics = {}
-
-            channel_metrics.update(
-                {
-                    f"train_loss_channel_weighted/{name}": train_channel_loss_weighted[i]
-                    for i, name in enumerate(self.output_name_order)
-                }
-            )
-
-            channel_metrics.update(
-                {
-                    f"train_loss_channel_unweighted/{name}": train_channel_loss_unweighted[i]
-                    for i, name in enumerate(self.output_name_order)
-                }
-            )
-
-            self.log_dict(
-                channel_metrics,
-                on_step=True,
-                on_epoch=False,
-                prog_bar=False,
-                sync_dist=True,
-            )
-
-        self.log(
-            "train_loss",
-            train_loss,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=True,
-            sync_dist=True,
-        )
-
-        self.log("lr", opt.param_groups[0]["lr"], prog_bar=True)
-
-        self.log(
-            "forecast_steps",
-            num_steps,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=True,
-            sync_dist=True,
-        )
-
-        return train_loss
-
-    def validation_step(self, batch, batch_idx):
-        """Validation step."""
-
-        input_data, true_data, forcings, constant_data = batch
-        constants = constant_data[:, :1].permute(0, 1, 4, 2, 3)
-        forcings = forcings.permute(0, 1, 4, 2, 3)
-
-        val_loss = 0.0
-        report_loss = 0.0
-        num_steps = true_data.size(1)
-
-        for step in range(num_steps):
-            forcings_step = forcings[:, step].unsqueeze(1)
-
-            input_data = torch.cat(
-                [input_data, forcings_step, constants], dim=2
-            ).squeeze(1)
-
-            # Forward pass
-            output_data = self(input_data)
-
-            loss = self.val_loss_fn(output_data, true_data[:, step])
-
-            # Log requested scaled RMSE losses for validation
-            if self.enable_reports:
-                report_loss += self._get_report_rmse(output_data, true_data[:, step])
-
-            # Compute loss (data is already transformed by dataset)
-            val_loss += loss
-
-            input_data = self._autoregression_next_input(
-                input_data, output_data,
-            ).unsqueeze(1)
-
-        batch_loss = val_loss / num_steps
-
-        self.log(
-            "val_loss",
-            batch_loss,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
-        )
-
-        # Log requested reports
-        for i, name in enumerate(self.cfg.training.reports.features):
-            self.log(
-                name,
-                report_loss[i] / num_steps,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                sync_dist=True,
-            )
-
-        return batch_loss
-
-    def _autoregression_next_input(
-        self,
-        input_data: torch.Tensor,
-        output_data: torch.Tensor,
-    ) -> torch.Tensor:
-        """Update autoregressive channel stack."""
-        common = output_data[:, : self.num_common_features]
-
+        self.n_inputs = cfg.dataset.n_time_inputs
+        weights = []
+        for name in datamodule.output_name_order:
+            variable = re.sub(r"_h\d+$", "", name)
+            source = (cfg.training.variable_loss_weights.atmospheric if "_h" in name
+                      else cfg.training.variable_loss_weights.surface)
+            weights.append(source[variable])
+        kwargs = dict(
+            lat_grid=datamodule.lat, pressure_levels=torch.tensor(cfg.features.pressure_levels),
+            num_features=datamodule.num_out_features,
+            num_surface_vars=len(cfg.features.output.surface),
+            var_loss_weights=torch.tensor(weights), output_name_order=datamodule.output_name_order,
+            delta_loss=cfg.training.loss_function.delta_loss,
+            apply_latitude_weights=cfg.training.loss_function.lat_weights)
+        self.loss_fn = ParadisLoss(loss_function=cfg.training.loss_function.type, **kwargs)
+        validation_loss = cfg.training.loss_function.get("validation_loss")
+        self.val_loss_fn = (ParadisLoss(loss_function=validation_loss, **kwargs)
+                            if validation_loss else self.loss_fn)
+
+    def forward(self, fields, hidden_static=None):
+        if hidden_static is None:
+            return self.model(fields)
+        return self.model(fields, hidden_static=hidden_static)
+
+    def _autoregression_next_input(self, inputs, outputs):
+        common = outputs[:, :self.num_common_features]
         if self.n_inputs == 1:
             return common
+        return torch.cat([inputs[:, self.num_common_features:self.num_common_features * self.n_inputs],
+                          common], dim=1)
 
-        lag_channels = self.num_common_features * self.n_inputs
+    def rollout(self, batch, backward=None, accumulation=1, validation=False):
+        """Backpropagate each truncation chunk with the upstream loss scale."""
+        inputs, targets, forcings, constants = batch
+        inputs = inputs[:, 0]
+        constants = constants[:, 0].permute(0, 3, 1, 2)
+        forcings = forcings.permute(0, 1, 4, 2, 3)
+        steps = targets.shape[1]
+        detach_every = self.cfg.training.optimizer.get("detach_gradient_every") or steps
+        criterion = self.val_loss_fn if validation else self.loss_fn
+        total = inputs.new_zeros(())
+        chunk = 0
+        hidden_static = None
+        for step in range(steps):
+            if steps > 1 and hasattr(self.model, "encode_static") and step % detach_every == 0:
+                hidden_static = self.model.encode_static(constants)
+            fields = torch.cat([inputs, forcings[:, step], constants], dim=1)
+            outputs = self(fields, hidden_static=hidden_static)
+            loss = criterion(outputs, targets[:, step])
+            total = total + loss.detach()
+            chunk = chunk + loss / (steps * accumulation)
+            inputs = self._autoregression_next_input(fields, outputs)
+            if (step + 1) % detach_every == 0 or step + 1 == steps:
+                if backward is not None:
+                    backward(chunk)
+                inputs = inputs.detach()
+                chunk = 0
+        return total / steps
 
-        return torch.cat(
-            [
-                input_data[:, self.num_common_features : lag_channels],
-                common,
-            ],
-            dim=1,
-        )
 
-    def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        sample_indices, input_data, forcings, constant_data = batch
+def bare_model(task):
+    return task.model.module if isinstance(task.model, DistributedDataParallel) else task.model
 
-        dataset = self.datamodule.dataset
 
-        num_forecast_steps = self.cfg.model.forecast_steps
-        output_frequency = self.cfg.forecast.output_frequency
-        write_every_n = self.cfg.forecast.get("write_every_n", num_forecast_steps)
+def checkpoint_metadata(task):
+    cfg, dm = task.cfg, task.datamodule
+    architecture = OmegaConf.to_container(cfg.model, resolve=True)
+    for name in ("forecast_steps", "val_forecast_steps"):
+        architecture.pop(name, None)
+    statistics = {}
+    for name in ("input_mean", "input_std", "output_mean", "output_std", "q_min", "q_max", "toa_rad_mean", "toa_rad_std"):
+        if hasattr(dm.dataset, name):
+            value = getattr(dm.dataset, name)
+            statistics[name] = value.tolist() if isinstance(value, torch.Tensor) else float(value)
+    return dict(model=architecture,
+                features=OmegaConf.to_container(cfg.features, resolve=True),
+                normalization=OmegaConf.to_container(cfg.normalization),
+                statistics=statistics,
+                n_inputs=cfg.dataset.n_time_inputs, prediction_delta=cfg.dataset.prediction_delta,
+                latitude=dm.lat.tolist(), longitude=dm.lon.tolist())
 
-        from utils.postprocessing import (
-            denormalize_datasets,
-            convert_cartesian_to_spherical_winds,
-        )
 
-        output_features = list(dataset.dyn_output_features)
-        constants = constant_data[:, :1].permute(0, 1, 4, 2, 3)
+def rng_state():
+    return dict(python=random.getstate(), numpy=np.random.get_state(), torch=torch.get_rng_state(),
+                cuda=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None)
 
-        chunk_buffer = []
-        chunk_start_idx = None
-        stored_step_idx = 0
 
-        for step in range(num_forecast_steps):
-            forcings_step = forcings[:, step].unsqueeze(1).permute(0, 1, 4, 2, 3)
+def restore_rng(state):
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"])
+    if state["cuda"] is not None:
+        torch.cuda.set_rng_state_all(state["cuda"])
 
-            model_input = torch.cat(
-                [input_data, forcings_step, constants], dim=2
-            ).squeeze(1)
-            output_data = self(model_input)
 
-            input_data = self._autoregression_next_input(
-                model_input, output_data
-            ).unsqueeze(1)
+def save_checkpoint(path, task, optimizer, scheduler, scaler, progress):
+    states = [rng_state()]
+    if dist.is_initialized():
+        states = [None] * dist.get_world_size()
+        dist.all_gather_object(states, rng_state())
+        if dist.get_rank() != 0:
+            return
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    weights = {k.replace("_orig_mod.", ""): v for k, v in bare_model(task).state_dict().items()}
+    state = dict(model=weights, optimizer=optimizer.state_dict(),
+                 scheduler=scheduler.state_dict(), scaler=scaler.state_dict(), rng=states,
+                 progress=progress, metadata=checkpoint_metadata(task),
+                 config=OmegaConf.to_container(task.cfg, resolve=True))
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("wb") as output:
+        torch.save(state, output)
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(temporary, path)
 
-            if step % output_frequency == 0:
-                if chunk_start_idx is None:
-                    chunk_start_idx = stored_step_idx
 
-                chunk_buffer.append(output_data.detach())
-                stored_step_idx += 1
+def load_checkpoint(path, task, optimizer=None, scheduler=None, scaler=None):
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    if state["metadata"] != checkpoint_metadata(task):
+        raise ValueError("Checkpoint model, features, normalization, or grid is incompatible")
+    if optimizer is not None:
+        old, new = state["config"], OmegaConf.to_container(task.cfg, resolve=True)
+        for section, keys in {"training": ("optimizer", "scheduler", "max_steps", "max_epochs", "accumulate_grad_batches", "dataset", "validation_dataset", "loss_function", "variable_loss_weights"),
+                              "dataset": ("sampling_interval", "time_resolution"),
+                              "compute": ("batch_size", "use_amp", "threads", "compile", "gradient_checkpointing"), "init": ("seed",),
+                              "model": ("forecast_steps",)}.items():
+            if any(old[section][key] != new[section][key] for key in keys):
+                raise ValueError(f"Resume configuration changed in {section}")
+        world = dist.get_world_size() if dist.is_initialized() else 1
+        if len(state["rng"]) != world:
+            raise ValueError("Exact resume requires the same distributed world size")
+    bare_model(task).load_state_dict(state["model"], strict=True)
+    if optimizer is not None:
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        scaler.load_state_dict(state["scaler"])
+        restore_rng(state["rng"][dist.get_rank() if dist.is_initialized() else 0])
+    return state["progress"]
 
-                if len(chunk_buffer) == write_every_n:
-                    chunk_tensor = torch.stack(chunk_buffer, dim=1).cpu()
-                    denormalize_datasets(None, chunk_tensor, dataset)
 
-                    chunk_np = chunk_tensor.numpy()
-                    convert_cartesian_to_spherical_winds(
-                        dataset.lat, dataset.lon, self.cfg, chunk_np, output_features
-                    )
+def move_batch(batch, device):
+    return tuple(x.to(device, non_blocking=device.type == "cuda") for x in batch)
 
-                    self.forecast_writer.write_forecast_chunk(
-                        forecast=chunk_np,
-                        sample_indices=(
-                            None
-                            if sample_indices is None
-                            else sample_indices.cpu().numpy()
-                        ),
-                        start_idx=chunk_start_idx,
-                        dataset=dataset,
-                    )
 
-                    del chunk_tensor, chunk_np
-                    chunk_buffer.clear()
-                    chunk_start_idx = None
+@torch.no_grad()
+def validate(task, loader, device, amp=False, limit=None):
+    task.eval()
+    total = torch.zeros(2, dtype=torch.float64, device=device)
+    for index, batch in enumerate(loader):
+        if limit is not None and index >= limit:
+            break
+        with torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
+            loss = task.rollout(move_batch(batch, device), validation=True)
+        total[0] += loss.double() * batch[0].shape[0]
+        total[1] += batch[0].shape[0]
+    if dist.is_initialized():
+        dist.all_reduce(total)
+    task.train()
+    return (total[0] / total[1]).item() if total[1] else None
 
-            del output_data
 
-        if chunk_buffer:
-            chunk_tensor = torch.stack(chunk_buffer, dim=1).cpu()
-            denormalize_datasets(None, chunk_tensor, dataset)
-
-            chunk_np = chunk_tensor.numpy()
-            convert_cartesian_to_spherical_winds(
-                dataset.lat, dataset.lon, self.cfg, chunk_np, output_features
-            )
-
-            self.forecast_writer.write_forecast_chunk(
-                forecast=chunk_np,
-                sample_indices=(
-                    None if sample_indices is None else sample_indices.cpu().numpy()
-                ),
-                start_idx=chunk_start_idx,
-                dataset=dataset,
-            )
-
-        return None
-
-    def on_train_epoch_end(self):
-        """Log epoch time and metrics if printing losses."""
-        if self.print_losses and self.epoch_start_time is not None:
-            elapsed_time = time.time() - self.epoch_start_time
-            current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
-
-            # Get the losses using the logged metrics
-            train_loss = self.trainer.callback_metrics.get("train_loss")
-            val_loss = self.trainer.callback_metrics.get("val_loss")
-
-            if (
-                self.trainer.is_global_zero
-                and train_loss is not None
-                and val_loss is not None
-            ):
-                print(
-                    f"Epoch {self.current_epoch:4d} | "
-                    f"Train Loss: {train_loss.item():.6f} | "
-                    f"Val Loss: {val_loss.item():.6f} | "
-                    f"LR: {current_lr:.2e} | "
-                    f"Elapsed time: {elapsed_time:.4f}s"
-                )
-
-    def on_train_end(self):
-        """Called when training ends."""
-        logging.info(f"Training completed after {self.current_epoch + 1} epochs")
-
-    def on_before_optimizer_step(self, optimizer):
-
-        if self.log_statistics:
-            grad_sq = defaultdict(lambda: torch.zeros((), device=self.device))
-            param_sq = defaultdict(lambda: torch.zeros((), device=self.device))
-            momentum_sq = defaultdict(lambda: torch.zeros((), device=self.device))
-            dot_product_total = defaultdict(lambda: torch.zeros((), device=self.device))
-
-            for name, p in self.named_parameters():
-                if p is None or p.data is None:
-                    continue
-                key = name.split(".")[1]
-
-                # param norm (for grad/param ratio)
-                param_sq[key] = param_sq[key] + (p.detach().float() ** 2).sum()
-
-                # grad norm
-                if p.grad is not None:
-                    g = p.grad.detach()
-                    if g.dtype != torch.float32:
-                        g = g.float()
-                    grad_sq[key] = grad_sq[key] + (g**2).sum()
-
-                    # Compute grad-momentum alignment (cosine similarity)
-                    if p in optimizer.state and "exp_avg" in optimizer.state[p]:
-                        m = optimizer.state[p]["exp_avg"].detach()
-                        if m.dtype != torch.float32:
-                            m = m.float()
-
-                        # Accumulate for cosine similarity computation
-                        dot_product_total[key] = dot_product_total[key] + (g * m).sum()
-                        momentum_sq[key] = momentum_sq[key] + (m**2).sum()
-
-            total_grad = (
-                torch.stack(
-                    list(grad_sq.values()) or [torch.zeros((), device=self.device)]
-                )
-                .sum()
-                .sqrt()
-            )
-
-            metrics = {"grad/total": total_grad}
-            eps = 1e-12
-            total_dot = torch.zeros((), device=self.device)
-            total_grad_sq = torch.zeros((), device=self.device)
-            total_momentum_sq = torch.zeros((), device=self.device)
-
-            for k in sorted(grad_sq.keys()):
-                gnorm = grad_sq[k].sqrt()
-                pnorm = param_sq[k].sqrt().clamp_min(eps)
-                metrics[f"grad/{k}"] = gnorm
-                metrics[f"gradratio/{k}"] = gnorm / pnorm
-                metrics[f"pnorm/{k}"] = pnorm
-
-                # Add grad-momentum alignment metrics (per-layer cosine similarity)
-                if momentum_sq[k] > 0:
-                    g_norm = grad_sq[k].sqrt()
-                    m_norm = momentum_sq[k].sqrt()
-                    per_layer_alignment = dot_product_total[k] / (g_norm * m_norm + eps)
-                    metrics[f"grad_alignment/{k}"] = per_layer_alignment
-
-                # Accumulate for total cosine similarity
-                total_dot = total_dot + dot_product_total[k]
-                total_grad_sq = total_grad_sq + grad_sq[k]
-                total_momentum_sq = total_momentum_sq + momentum_sq[k]
-
-            # Compute overall grad-momentum alignment (true cosine similarity)
-            if total_momentum_sq > 0:
-                total_grad_norm = total_grad_sq.sqrt()
-                total_momentum_norm = total_momentum_sq.sqrt()
-                total_alignment = total_dot / (
-                    total_grad_norm * total_momentum_norm + eps
-                )
-                metrics["grad_alignment/total"] = total_alignment
-
-            self.log_dict(
-                metrics, on_step=True, logger=True, prog_bar=False, sync_dist=True
-            )
-
-        return super().on_before_optimizer_step(optimizer)
-
-    def on_train_batch_start(self, batch, batch_idx):
-        # Record current time for time-per-step calculation
-        self.tic = time.perf_counter()
-
-        return super().on_train_batch_start(batch, batch_idx)
-
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        dt = time.perf_counter() - self.tic
-
-        self.log(
-            "dt",
-            dt,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=False,
-            sync_dist=True,
-        )
-
-        return super().on_train_batch_end(outputs, batch, batch_idx)
+def fit(task, datamodule, cfg):
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    world = dist.get_world_size() if dist.is_initialized() else 1
+    device = torch.device("cuda", int(os.environ.get("LOCAL_RANK", 0))) if cfg.compute.accelerator in ("gpu", "cuda") else torch.device("cpu")
+    task.to(device)
+    amp = cfg.compute.use_amp
+    if amp and device.type != "cuda":
+        raise ValueError("Mixed precision is supported on CUDA; use compute.use_amp=false on CPU")
+    accumulation = cfg.training.accumulate_grad_batches
+    if accumulation < 1:
+        raise ValueError("accumulate_grad_batches must be positive")
+    seed = cfg.init.seed or 0
+    sampler = DistributedSampler(datamodule.dataset, num_replicas=world, rank=rank, seed=seed)
+    generator = torch.Generator().manual_seed(seed)
+    loader = DataLoader(datamodule.dataset, batch_size=cfg.compute.batch_size, sampler=sampler,
+                        num_workers=cfg.compute.num_workers, generator=generator,
+                        pin_memory=device.type == "cuda", persistent_workers=cfg.compute.num_workers > 0)
+    val_loader = DataLoader(datamodule.val_dataset, batch_size=cfg.compute.batch_size,
+                           sampler=range(rank, len(datamodule.val_dataset), world),
+                           num_workers=cfg.compute.val_num_workers, generator=generator,
+                           pin_memory=device.type == "cuda")
+    updates_per_epoch = math.ceil(len(loader) / accumulation)
+    if not updates_per_epoch:
+        raise ValueError("Training split has no complete temporal windows")
+    total_steps = cfg.training.max_steps
+    if total_steps < 0:
+        total_steps = cfg.training.max_epochs * updates_per_epoch
+    optimizer, scheduler = configure_optimizers(task.model, cfg, total_steps)
+    scaler = torch.amp.GradScaler(device.type, enabled=False)
+    progress = dict(step=0, epoch=0, batch=0, best_loss=float("inf"), bad_validations=0, elapsed_seconds=0.0)
+    if cfg.init.checkpoint_path:
+        if cfg.init.restart:
+            progress = load_checkpoint(cfg.init.checkpoint_path, task, optimizer, scheduler, scaler)
+        else:
+            load_checkpoint(cfg.init.checkpoint_path, task)
+    if cfg.compute.compile is True:
+        task.model.compile()
+    elif cfg.compute.compile == "modules":
+        task.model._compile()
+    if world > 1:
+        task.model = DistributedDataParallel(task.model, device_ids=[device.index] if device.type == "cuda" else None,
+                                             broadcast_buffers=False)
+    log_dir = Path(cfg.training.log_dir) / (cfg.training.experiment_name or "run")
+    if (log_dir / "metrics.jsonl").exists() and not cfg.init.restart:
+        raise FileExistsError(f"Training logs already exist: {log_dir}; choose a new experiment_name")
+    if rank == 0:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        OmegaConf.save(cfg, log_dir / "config.yaml", resolve=True)
+        source_root = Path(__file__).resolve().parent
+        provenance = dict(
+            source_revision=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source_root, text=True).strip(),
+            source_dirty=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=source_root, text=True).strip()),
+            torch=torch.__version__, threads=torch.get_num_threads(), world_size=world,
+            cpu_affinity=sorted(os.sched_getaffinity(0)), parameters=sum(p.numel() for p in task.parameters()))
+        (log_dir / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+    previous_elapsed = progress["elapsed_seconds"]
+    started = time.perf_counter()
+    every_val = cfg.training.validation_dataset.validation_every_n_steps
+    limit_val = cfg.training.validation_dataset.validation_batches
+    plateau = isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau)
+    if plateau and limit_val == 0:
+        raise ValueError("ReduceLROnPlateau requires validation")
+    task.train()
+    while progress["step"] < total_steps:
+        if cfg.training.max_epochs > 0 and progress["epoch"] >= cfg.training.max_epochs:
+            break
+        sampler.set_epoch(progress["epoch"])
+        optimizer.zero_grad(set_to_none=True)
+        accumulated = 0.0
+        for index, batch in enumerate(loader):
+            if index < progress["batch"]:
+                continue
+            update = (index + 1) % accumulation == 0 or index + 1 == len(loader)
+            sync = task.model.no_sync() if world > 1 and not update else contextlib.nullcontext()
+            with sync, torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
+                loss = task.rollout(move_batch(batch, device), backward=lambda x: scaler.scale(x).backward(), accumulation=accumulation)
+            accumulated += loss.item()
+            if not update:
+                continue
+            scaler.unscale_(optimizer)
+            if cfg.training.gradient_clip_val is not None:
+                nn.utils.clip_grad_norm_(task.parameters(), cfg.training.gradient_clip_val, error_if_nonfinite=True)
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+            if not plateau:
+                scheduler.step()
+            progress["step"] += 1
+            progress["batch"] = index + 1
+            progress["elapsed_seconds"] = previous_elapsed + time.perf_counter() - started
+            row = dict(step=progress["step"], epoch=progress["epoch"], train_loss=accumulated / min(accumulation, (index % accumulation) + 1),
+                       lr=optimizer.param_groups[0]["lr"], elapsed_seconds=progress["elapsed_seconds"])
+            accumulated = 0.0
+            due = (every_val and progress["step"] % every_val == 0) or (not every_val and index + 1 == len(loader)) or progress["step"] == total_steps
+            if due and limit_val != 0:
+                value = validate(task, val_loader, device, amp, limit_val)
+                row["val_loss"] = value
+                if value is not None:
+                    if plateau:
+                        scheduler.step(value)
+                    improved = value < progress["best_loss"]
+                    progress["bad_validations"] = 0 if improved else progress["bad_validations"] + 1
+                    if improved:
+                        progress["best_loss"] = value
+                        if cfg.training.checkpointing.enabled:
+                            save_checkpoint(log_dir / "best.pt", task, optimizer, scheduler, scaler, progress)
+            if rank == 0:
+                with (log_dir / "metrics.jsonl").open("a") as output:
+                    output.write(json.dumps(row) + "\n")
+                if due or progress["step"] % cfg.training.log_every_n_steps == 0:
+                    print(json.dumps(row), flush=True)
+            if cfg.training.checkpointing.enabled and (due or progress["step"] % cfg.training.log_every_n_steps == 0):
+                save_checkpoint(log_dir / "last.pt", task, optimizer, scheduler, scaler, progress)
+            if progress["step"] >= total_steps or (cfg.training.early_stopping.enabled and progress["bad_validations"] >= cfg.training.early_stopping.patience):
+                return progress
+        progress["epoch"] += 1
+        progress["batch"] = 0
+    return progress

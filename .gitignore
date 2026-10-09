@@ -173,3 +173,11 @@ cython_debug/
 *.png
 *.out
 *.err
+*.pt
+*.npz
+!report/figures/*.png
+report/*.aux
+report/*.fdb_latexmk
+report/*.fls
+report/*.toc
+report/*.out

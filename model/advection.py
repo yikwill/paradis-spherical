@@ -36,6 +36,7 @@ class NeuralSemiLagrangian(torch.nn.Module):
         up_proj_ldim = adv_cfg.up_projection.hidden_dim
 
         self.down_projection = GMBlock(
+            spatial_conv=cfg.model.get("spatial_conv", "disco"),
             layers=down_proj_layers,
             input_dim=hidden_dim,
             output_dim=num_vels,
@@ -44,6 +45,7 @@ class NeuralSemiLagrangian(torch.nn.Module):
         )
 
         self.up_projection = GMBlock(
+            spatial_conv=cfg.model.get("spatial_conv", "disco"),
             layers=up_proj_layers,
             input_dim=num_vels,
             output_dim=hidden_dim,
