@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+from omegaconf import OmegaConf
 
 # Import the upstream trainer BEFORE adding this project's experiment helpers.
 from trainer import LitParadis
@@ -15,6 +16,9 @@ from experiments.common import compact_config, synthetic_data
 
 torch.set_num_threads(2)
 cfg = compact_config(static_channels=128)
+upstream_config = OmegaConf.load(Path(sys.modules['trainer'].__file__).parent/'config/paradis_settings.yaml')
+cfg.model.bias_channels = upstream_config.model.bias_channels
+cfg.features.input.constants = upstream_config.features.input.constants
 cfg.model.forecast_steps = 2
 cfg.training.accumulate_grad_batches = 2
 dm, batch = synthetic_data(cfg)

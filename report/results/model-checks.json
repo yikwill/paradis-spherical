@@ -1,9 +1,10 @@
 {
-  "disco_reference_max_abs_error": 1.3322676295501878e-15,
+  "disco_reference_max_abs_error": 6.661338147750939e-16,
   "parameters": {
     "conv2d": 3946,
     "disco": 3946
   },
   "checkpoint_resume": "bitwise identical",
+  "static_reuse": "loss and gradients match for truncation 1/2/3",
   "status": "passed"
 }

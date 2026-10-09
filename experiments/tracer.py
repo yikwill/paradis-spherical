@@ -75,6 +75,7 @@ def main():
     parser.add_argument("--seconds",type=float,default=7200)
     parser.add_argument("--threads",type=int,default=8)
     parser.add_argument("--continuation-steps",type=int,default=0)
+    parser.add_argument("--identity-steps",type=int,default=0)
     parser.add_argument("--output",default="/home/yikwill/paradis-data/tracer")
     args=parser.parse_args()
     torch.set_num_threads(args.threads)
@@ -97,10 +98,14 @@ def main():
     directory=Path(args.output)
     directory.mkdir(parents=True,exist_ok=True)
     label=args.model+('-continuation' if args.continuation_steps else '')
+    if args.identity_steps:
+        if not args.continuation_steps:
+            raise ValueError('Identity warmup requires angular continuation')
+        label+=f'-identity{args.identity_steps}'
     start=time.perf_counter()
     history=[]
     for step in range(args.steps):
-        angle=68*min(1,(step+1)/args.continuation_steps) if args.continuation_steps else 68
+        angle=68*min(1,max(0,step+1-args.identity_steps)/args.continuation_steps) if args.continuation_steps else 68
         current=tracer_fields(angle=angle)[1] if angle!=68 else target
         optimizer.zero_grad(set_to_none=True)
         prediction=model(inputs)

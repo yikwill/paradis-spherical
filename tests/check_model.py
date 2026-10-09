@@ -89,12 +89,44 @@ def check_resume(backend):
     return sum(p.numel() for p in task.parameters())
 
 
+def check_static_reuse(backend):
+    """Compare cached rollout to recomputing static features at every step."""
+    for detach in (1, 2, 3):
+        cfg = compact_config(backend)
+        cfg.model.forecast_steps = 3
+        cfg.training.optimizer.detach_gradient_every = detach
+        dm, batch = synthetic_data(cfg)
+        cached = ParadisTask(dm, cfg)
+        reference = copy.deepcopy(cached)
+        actual = cached.rollout(batch, backward=lambda loss: loss.backward())
+        inputs, targets, forcings, constants = batch
+        fields = inputs[:, 0]
+        constants = constants[:, 0].permute(0, 3, 1, 2)
+        chunk = 0
+        losses = []
+        for step in range(3):
+            output = reference(torch.cat([fields, forcings[:, step].permute(0, 3, 1, 2), constants], 1))
+            loss = reference.loss_fn(output, targets[:, step])
+            losses.append(loss.detach())
+            chunk = chunk + loss / 3
+            fields = reference._autoregression_next_input(fields, output)
+            if (step + 1) % detach == 0 or step == 2:
+                chunk.backward()
+                fields = fields.detach()
+                chunk = 0
+        torch.testing.assert_close(actual, torch.stack(losses).mean(), rtol=1e-6, atol=1e-7)
+        for a, b in zip(cached.parameters(), reference.parameters()):
+            torch.testing.assert_close(a.grad, b.grad, rtol=2e-5, atol=1e-6)
+
+
 def main():
     torch.set_num_threads(2)
     torch.manual_seed(3)
+    for backend in ("conv2d", "disco"):
+        check_static_reuse(backend)
     result = dict(disco_reference_max_abs_error=check_disco(),
                   parameters={name: check_resume(name) for name in ("conv2d", "disco")},
-                  checkpoint_resume="bitwise identical", status="passed")
+                  checkpoint_resume="bitwise identical", static_reuse="loss and gradients match for truncation 1/2/3", status="passed")
     Path("report/results/model-checks.json").write_text(json.dumps(result, indent=2)+"\n")
     print(json.dumps(result, indent=2))
 

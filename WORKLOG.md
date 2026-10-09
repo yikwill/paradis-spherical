@@ -93,3 +93,41 @@ are outside the 12-hour CPU experiment budget; four GPU-hours remain reserved.
   and generated tables, inspect PDF. Report failed targets and unavailable GPU honestly.
 - Commit/push authorized private repository and verify visibility; update paradis-setup
   status. Preserve original license and attribution. Do not commit datasets/checkpoints.
+
+## Checkpoint 2026-10-09 01:15 UTC
+
+- Core implementation committed as `58f5fbf`. Local commits use William Yik's
+  GitHub identity with the GitHub noreply address; no global Git setting changed.
+- Compilation output/gradient checks passed for both backends. Weather training
+  now running sequentially for conv2d then DISCO, exactly 2000 updates each,
+  four threads on CPUs8-11, compiled. Session77601; `/tmp/paradis-weather.log`.
+  Actual data preload took163.1seconds under concurrent load; first100updatesdone.
+- Final model checks include static-cache gradients for truncation1/2/3 and pass.
+  Final real-ERA5 forecasting check passes after checkpoint metadata changes.
+- Upstream fixture recaptured with original bias_channels and original constant
+  names, using `/tmp/paradis-upstream-port-final.pt`. The native port comparison
+  still gives exactly zero output/loss/gradient/update errors. Logs `/tmp/paradis-port-final.log`.
+- Data-loader pilot passes matching-time dynamic/forcing equality exactly. Original
+  loader requires original constants ending in latitude/longitude, so its complete
+  original constant configuration is loaded from the reference worktree. Constants
+  are deliberately excluded from equality checks. Pilot setup37.85s/10.90s and
+  sample0.2241s/0.1878s upstream/optimized; repeat idle for final measurement.
+  Raw pilot `report/results/data-benchmark-pilot.json`.
+- Added `experiments/memory.py` for separate-process RSS; run all three variants
+  with `--compile` after own training jobs finish. Final model benchmark also needs
+  `--compile --repeats20 --profile` in isolation.
+- Added final-format README, report/report.tex, and report/make_figures.py.
+  These are drafts pending final numbers/figures, compilation and visual inspection.
+- Added two identity-warmup tracer diagnostics after early continuation approached
+  zero predictions. Same random initialization and objective: identity300updates,
+  ramp600updates, fixed100updates, fourthreads. PARADIS session48116 onCPUs12-15,
+  log `/tmp/paradis-tracer-warm.log`, max10800seconds; U-Net session79583 onCPUs0-3,
+  log `/tmp/paradis-unet-warm.log`, max5400seconds. U-Net identityfit improves by
+  step50; PARADIS only~step15 currently. These must remain separately labelled.
+- Original active runs remain: fixed PARADIS22045/fixed U-Net9860/continuation
+  PARADIS19819/continuation U-Net76441. Eightthread PARADIS continuation has slow
+  ~25second updates; it may hit5400second limit before target68degrees. Report
+  completed steps/actualangle, never pretend all protocols reached same endpoint.
+- `paradis-setup/README.md` updated to ongoing status; historical handoff retained.
+- `pip check` passes. Compileall in the project Python3.11 passes; host system
+  python3 is too old for existing walrus syntax and is not a supported environment.

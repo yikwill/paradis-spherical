@@ -300,7 +300,6 @@ def stack_data(ds, output_base_dir, begin_year, end_year):
         }
         ds_year = ds_year.chunk(chunk_sizes)
 
-        # IMPORTANT: move spatial dims to the end for layerquantizer
         ds_year = ds_year.transpose("time", "features", "latitude", "longitude")
 
         ds_year.name = "data"
