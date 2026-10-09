@@ -4,6 +4,8 @@
 \hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
 \setlength{\parskip}{0.4em}
 \setlength{\parindent}{0pt}
+\widowpenalty=10000
+\clubpenalty=10000
 \setlist{nosep}
 \input{results/numbers.tex}
 \title{PARADIS with spherical DISCO convolutions\\\large Native PyTorch port and compact CPU reproduction}
@@ -20,9 +22,12 @@ small deterministic output/loss/gradient/AdamW fixture. Additional checks cover
 spherical operators, temporal splits, autoregression, checkpoint continuation,
 distributed CPU execution, and real-data forecast writing. Experiments use a full
 $721\times1440$ tracer grid and a compact, paired 2,000-update weather comparison
-on real ERA5. These bounded CPU experiments do not reproduce the paper's full
-weather training or establish GPU performance. All measured outcomes, including
-unsuccessful tracer fits and performance gates, are retained.
+on real ERA5. Fixed-target tracer fits fail; identity warmup and gradual displacement
+give PARADIS relative MSE \WarmTracerRatio\ with signed mass error \WarmTracerMass\%.
+The final DISCO/Conv2d weather-loss ratio is \WeatherRatio, and the joint CPU
+no-slowdown criterion \SpeedGate. These bounded experiments do not reproduce the
+paper's full weather training or establish GPU performance. Failed targets and
+all attempted tracer protocols are retained.
 \end{abstract}
 
 \section{Scope and source}
@@ -33,9 +38,10 @@ uses the complete compact PARADIS architecture, including its encoders, two
 advection--diffusion--reaction blocks, gates, and decoder. It is therefore a
 modified experiment, not an exact reconstruction of the paper's small NSL model.
 
-The complete upstream repository and history are retained at commit
-\texttt{9a6f4b7d0dadfb80918ff8929bd92b6a5da2bcc5}. The unchanged reference is a detached
-worktree. The primary implementation commit is \texttt{58f5fbf}; the folded CPU
+The full upstream history is retained at revision
+\texttt{9a6f4b7d0dadfb80918ff8929bd92b6a5da2bcc5}.
+The unchanged reference is a detached worktree. The primary implementation commit
+is \texttt{58f5fbf}; the folded CPU
 kernel and its checks are committed as \texttt{9a235ec}. Other commits contain
 additional checks, experiment drivers, measurements, and this report.
 Saved weather configurations and provenance files identify the training source.
@@ -44,8 +50,10 @@ The private repository is \url{https://github.com/yikwill/paradis-spherical}.
 The accepted budget is 12 CPU experiment wall-hours, excluding installation,
 data download, and report compilation. Four GPU-hours remain reserved because
 supported GPU hardware was unavailable. The execution ledger in
-\texttt{results/budget.json} records the actual experiment interval and individual
-run durations. Concurrent run durations must not be summed as elapsed wall time.
+\texttt{results/budget.json} records a conservative wall-time upper bound and
+individual run durations. Its interval includes setup and reporting to avoid
+undercounting and is below four hours. Concurrent run durations must not be summed
+as elapsed wall time.
 
 \section{Implementation and numerical verification}
 \subsection{Native orchestration}
@@ -183,6 +191,8 @@ versus the paper's stated 45,909; the original toy-experiment code was not recov
 Earlier plain double-convolution U-Net runs (30,601 parameters) are retained as
 auxiliary diagnostics and excluded from the main figure. Both models use seed 42, AdamW with learning rate 0.002,
 zero weight decay, and gradient clipping at 1.
+These runs fit one initial Gaussian; they do not test generalization to unseen
+tracer fields or held-out displacements.
 
 The main protocol trains directly against the fixed $68^\circ$ target for up to
 500 updates. Separately labelled diagnostics (i) ramp the target over 300 updates
@@ -193,7 +203,8 @@ counts are preserved in each JSON record.
 
 Under the fixed-target protocol, the residual U-Net converges to an almost
 constant field. PARADIS produces a broad zonal band near the target latitude,
-with only weak longitude variation. Neither reconstructs the localized Gaussian:
+with only weak longitude variation. Its error closely matches the optimal
+longitude-averaged target (relative MSE \ZonalRatio). Neither reconstructs the localized Gaussian:
 the modest reduction in PARADIS's relative MSE does not demonstrate successful
 transport. The separate identity-first diagnostic tests whether a gradual target
 change can avoid this optimization failure.
@@ -236,6 +247,13 @@ then increases it toward $68^\circ$. This explicitly modified optimization proto
 tests whether the full architecture can track transport after learning the field
 representation; it is not an exact repetition of the paper's fixed-angle procedure.}
 \end{figure}
+
+With identity warmup and gradual displacement, PARADIS does localize the Gaussian
+at the final $68^\circ$ target: relative MSE is \WarmTracerRatio\ and peak amplitude
+is \WarmTracerPeak. The signed mass error is nevertheless \WarmTracerMass\%, and
+small negative values occur. This is a successful field fit under the modified
+optimization protocol, not exact conservative transport. The low MSE alone would
+hide the contribution of a weak background over the rest of the globe.
 
 \section{Partial weather comparison}
 Real ERA5 data comes from the WeatherBench 2 $121\times240$ equiangular-with-poles
@@ -292,6 +310,9 @@ validation windows with cosine-latitude weighting. Persistence carries the last
 input field forward. These physical-unit scores contextualize the aggregate loss;
 they are not the paper's long-lead forecast evaluation.}
 \end{table}
+Both short-trained models improve on persistence for geopotential and are worse
+than persistence for 2 m temperature. Similar aggregate validation loss therefore
+does not establish uniform forecasting skill across variables.
 
 \begin{figure}[ht]
 \centering\includegraphics[width=\linewidth]{figures/weather-learning.pdf}
@@ -338,18 +359,37 @@ DISCO rows. Raw samples and both upstream/control comparisons are committed.}
 The inference upper bound is \InferenceBound; the training upper bound is
 \TrainingBound. The joint no-slowdown criterion \SpeedGate\ for this workload.
 The JSON \texttt{no\_slowdown} fields retain both individual outcomes.
+Relative to optimized Conv2d, DISCO takes \InferenceControlRatio$\times$ the
+inference time and \TrainingControlRatio$\times$ the training time.
+The sample distributions and bootstrap intervals are broad, so the median
+speedups should be read as workload- and host-specific measurements.
 A failed bound is retained as a failed target, even when the point estimate or an
 isolated kernel is faster. No CPU result establishes GPU parity.
 
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{lrrr}
+\toprule
+Variant & Construction (s) & Inference warmup (s) & Training warmup (s) \\
+\midrule
+\input{results/setup-table.tex}
+\bottomrule
+\end{tabular}
+\caption{Observed construction and two warmup calls per workload. Optimized
+variants include compilation costs. Compiler caches contain earlier trials;
+these are observed setup costs, not a clean-cache compiler benchmark.}
+\end{table}
+
 \begin{figure}[ht]
 \centering\includegraphics[width=.9\linewidth]{figures/latency.pdf}
-\caption{Final latency sample distributions. Compilation and setup are excluded
-from these boxes and retained separately in the raw result file.}
+\caption{Final latency sample distributions on logarithmic axes, retaining every
+sample and outlier. Compilation and setup are excluded from these boxes and
+retained separately in the raw result file.}
 \end{figure}
 
 Fresh-process memory measurements in \texttt{results/memory-*.json} report resident
 peaks including Python, libraries, model construction, and compilation. They are
-not isolated tensor-allocation peaks.
+not isolated tensor-allocation peaks; compiler subprocess memory is not included.
 \begin{table}[ht]
 \centering
 \begin{tabular}{lrr}
@@ -394,6 +434,7 @@ long-range weather skill, and all CUDA paths remain unverified. These limitation
 must accompany any reuse of the reproduction's numerical comparisons.
 
 \begin{thebibliography}{9}
+\raggedright
 \bibitem{paradis} Pereira et al. \emph{Learning to Advect: A Neural Semi-Lagrangian
 Architecture for Weather Forecasting}. arXiv:2601.21151v1.
 \url{https://arxiv.org/html/2601.21151v1}.

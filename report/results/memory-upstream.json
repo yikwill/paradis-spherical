@@ -1,0 +1,7 @@
+{
+  "variant": "upstream",
+  "imported_peak_rss_kib": 372724,
+  "peak_rss_kib": 1219536,
+  "compiled": false,
+  "note": "Fresh process, three training updates; total resident peak includes Python, libraries, model construction and compilation. Four CPU threads."
+}

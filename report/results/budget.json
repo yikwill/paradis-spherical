@@ -1,0 +1,106 @@
+{
+  "cpu_experiment_budget_wall_hours": 12,
+  "conservative_interval_start_utc": "2026-10-09T00:30:00Z",
+  "conservative_interval_end_utc": "2026-10-09T04:15:00Z",
+  "conservative_elapsed_wall_hours_upper_bound": 3.75,
+  "within_cpu_budget": true,
+  "accounting": "Elapsed wall time, not core-hours. The interval is rounded outward from the recorded setup start near 00:33 UTC and completion of final measurements and first report build by 04:13:35 UTC. It includes installation, download, checks, tuning, training, evaluation, benchmarks and initial reporting, although setup, download and report work are exempt. Concurrent run durations overlap and must not be summed. Later report editing and Git publication are exempt; no further experiments were run.",
+  "gpu_budget_hours_reserved": 4,
+  "gpu_hours_used": 0,
+  "gpu_status": "deferred; supported hardware unavailable",
+  "runs": [
+    {
+      "result": "report/results/tracer-paradis-continuation-identity300.json",
+      "kind": "tracer",
+      "updates": 1000,
+      "elapsed_seconds": 8862.916558063996,
+      "last_training_angle_degrees": 68,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/tracer-paradis-continuation.json",
+      "kind": "tracer",
+      "updates": 204,
+      "elapsed_seconds": 5420.468181664008,
+      "last_training_angle_degrees": 46.24,
+      "completed_requested_updates": false
+    },
+    {
+      "result": "report/results/tracer-paradis.json",
+      "kind": "tracer",
+      "updates": 500,
+      "elapsed_seconds": 4666.872015759989,
+      "last_training_angle_degrees": 68,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/tracer-unet-continuation-identity300.json",
+      "kind": "tracer",
+      "updates": 1000,
+      "elapsed_seconds": 3524.8549798359745,
+      "last_training_angle_degrees": 68,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/tracer-unet-continuation.json",
+      "kind": "tracer",
+      "updates": 400,
+      "elapsed_seconds": 1255.6053995550028,
+      "last_training_angle_degrees": 68,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/tracer-unet-residual-continuation-identity300.json",
+      "kind": "tracer",
+      "updates": 1000,
+      "elapsed_seconds": 8756.537163303,
+      "last_training_angle_degrees": 68,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/tracer-unet-residual-continuation.json",
+      "kind": "tracer",
+      "updates": 400,
+      "elapsed_seconds": 3157.733112499991,
+      "last_training_angle_degrees": 68,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/tracer-unet-residual.json",
+      "kind": "tracer",
+      "updates": 500,
+      "elapsed_seconds": 3918.9990067249746,
+      "last_training_angle_degrees": 68,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/tracer-unet.json",
+      "kind": "tracer",
+      "updates": 500,
+      "elapsed_seconds": 1581.4316116329865,
+      "last_training_angle_degrees": 68,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/weather-conv2d-progress.json",
+      "kind": "weather",
+      "updates": 2000,
+      "elapsed_seconds": 3658.3144065059605,
+      "completed_requested_updates": true
+    },
+    {
+      "result": "report/results/weather-disco-progress.json",
+      "kind": "weather",
+      "updates": 2000,
+      "elapsed_seconds": 5421.054747243994,
+      "completed_requested_updates": true
+    }
+  ],
+  "final_measurement_start_utc": "2026-10-09T03:41:23Z",
+  "evidence": [
+    "WORKLOG.md",
+    "report/results/*-progress.json",
+    "report/results/tracer-*.json",
+    "report/results/final-measurements.txt"
+  ]
+}

@@ -8,6 +8,13 @@ full weather training run. Numerical findings and limitations are in
 [the report](report/report.pdf), with [LaTeX source](report/report.tex) and
 [raw results](report/results).
 
+The completed paired runs used 2,000 updates each; DISCO/Conv2d validation loss
+was 0.9995. The final CPU benchmark met the agreed no-slowdown criterion against
+upstream, with median speedups of 1.94x for inference and 1.50x for training;
+timing variability was substantial. Fixed-target tracer fitting failed. A separately
+labelled identity-warmup curriculum reached relative MSE 0.00232 with +8.61% mass
+error. These results do not establish full-paper reproduction or GPU parity.
+
 The fork replaces Lightning/TensorBoard with native PyTorch training and JSONL
 logs. Every spatial convolution can use `model.spatial_conv=disco` (the default)
 or `conv2d`; pointwise convolutions remain unchanged. Learned spatial bias maps

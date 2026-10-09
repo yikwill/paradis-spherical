@@ -1,0 +1,16 @@
+{
+  "status": "passed",
+  "audit_type": "Final artifact consistency; does not rerun the model experiments",
+  "checks": [
+    "Benchmark and folded-kernel source hashes match the final implementation",
+    "Final latency records contain all 20 finite samples per workload/variant and consistent gates",
+    "Both weather fits completed 2,000 updates; summaries/logs and checkpoint re-evaluation agree",
+    "All nine full-grid tracer results contain consistent histories/metrics and local field artifacts",
+    "Pinned upstream worktree is unchanged and clean",
+    "Nine-page PDF builds without layout/reference warnings and contains final numeric results",
+    "Preserved forecast regression includes before/after proof; both final two-rank cases passed",
+    "Conservative elapsed interval fits the authorized CPU budget; GPU usage is zero"
+  ],
+  "report_pdf_sha256": "745c80181e1497c142bc464f5af71add2cd6eea5ddf7d7a0d8c73dd46f6ca54d",
+  "benchmark_source_revision": "638d236ac1c0289af678cbea9692d1b9e8e1db52"
+}

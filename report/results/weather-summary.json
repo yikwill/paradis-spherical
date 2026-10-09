@@ -1,0 +1,17 @@
+{
+  "conv2d": {
+    "final_loss": 0.11407607030428824,
+    "best_loss": 0.11407607030428824,
+    "updates": 2000,
+    "fit_wall_seconds": 3658.3144065059605
+  },
+  "disco": {
+    "final_loss": 0.1140209753371653,
+    "best_loss": 0.1140209753371653,
+    "updates": 2000,
+    "fit_wall_seconds": 5421.054747243994
+  },
+  "final_loss_ratio": 0.9995170330904986,
+  "descriptive_limit": 1.1,
+  "within_descriptive_limit": true
+}

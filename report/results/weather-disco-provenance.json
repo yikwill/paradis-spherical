@@ -1,0 +1,14 @@
+{
+  "source_revision": "7a7b1071a723ce99d4161f39cdf6bb4fe362c6aa",
+  "source_dirty": true,
+  "torch": "2.14.1+cpu",
+  "threads": 4,
+  "world_size": 1,
+  "cpu_affinity": [
+    8,
+    9,
+    10,
+    11
+  ],
+  "parameters": 111638
+}

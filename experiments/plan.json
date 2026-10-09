@@ -1,5 +1,5 @@
 {
-  "status": "executing",
+  "status": "completed_bounded_cpu_reproduction",
   "repository": "yikwill/paradis-spherical",
   "visibility": "private",
   "upstream": "https://github.com/Wx-Alliance-Alliance-Meteo/paradis_model.git",
@@ -113,5 +113,23 @@
     "raw_benchmark_results",
     "partial_weather_training_results_if_feasible",
     "runnable_regression_checks_and_reproduction_commands"
-  ]
+  ],
+  "completion": {
+    "budget_ledger": "report/results/budget.json",
+    "report": "report/report.pdf",
+    "weather_updates_per_variant": 2000,
+    "weather_final_disco_over_conv2d_loss": 0.9995170330904986,
+    "tracer_attempts_recorded": 9,
+    "fixed_target_tracer_reproduced": false,
+    "modified_identity_warmup_fit_relative_mse": 0.002319853126538845,
+    "cpu_no_slowdown_gate_against_upstream": "passed for both inference and training",
+    "limitations": [
+      "Full paper weather training not reproduced",
+      "Tracer curriculum modifies the paper protocol",
+      "Single training seed",
+      "CPU timing variability substantial",
+      "Full-model scalar-pole invariance not preserved by inherited local pooling",
+      "CUDA behavior and performance unverified"
+    ]
+  }
 }

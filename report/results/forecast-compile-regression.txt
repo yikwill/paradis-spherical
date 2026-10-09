@@ -1,0 +1,2 @@
+EXPECTED BASELINE FAILURE: Saved compilation setting was ignored
+PASS: real-data native forecast, compiled CLI agreement, checkpoint horizon change, incremental Zarr output, lead times, overwrite protection

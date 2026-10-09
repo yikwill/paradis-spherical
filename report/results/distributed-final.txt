@@ -1,0 +1,20 @@
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed.
+*****************************************
+/home/yikwill/paradis-spherical/trainer.py:285: FutureWarning: `broadcast_buffers` is deprecated. Use `forward_sync_buffers` instead. IMPORTANT: unlike `broadcast_buffers=False`, `forward_sync_buffers=False` still syncs buffers at init. If you rely on buffers NOT being synced at init (e.g. rank-local buffers), keep using `broadcast_buffers=False` until `init_sync_buffers` is available.
+  task.model = DistributedDataParallel(task.model, device_ids=[device.index] if device.type == "cuda" else None,
+/home/yikwill/paradis-spherical/trainer.py:285: FutureWarning: `broadcast_buffers` is deprecated. Use `forward_sync_buffers` instead. IMPORTANT: unlike `broadcast_buffers=False`, `forward_sync_buffers=False` still syncs buffers at init. If you rely on buffers NOT being synced at init (e.g. rank-local buffers), keep using `broadcast_buffers=False` until `init_sync_buffers` is available.
+  task.model = DistributedDataParallel(task.model, device_ids=[device.index] if device.type == "cuda" else None,
+{"step": 1, "epoch": 0, "train_loss": 0.5707695633172989, "lr": 0.0005, "elapsed_seconds": 0.914254623989109, "val_loss": 9.738990783691406}
+{"step": 2, "epoch": 0, "train_loss": 0.289324551820755, "lr": 0.0005, "elapsed_seconds": 1.4853796609677374, "val_loss": 9.717544651031494}
+{"step": 3, "epoch": 1, "train_loss": 1.0749453902244568, "lr": 0.0, "elapsed_seconds": 2.2131701759644784, "val_loss": 9.699530982971192}
+PASS: two-rank CPU DISCO, 2 steps/truncation 1, accumulation, validation, checkpoint
+/home/yikwill/paradis-spherical/trainer.py:285: FutureWarning: `broadcast_buffers` is deprecated. Use `forward_sync_buffers` instead. IMPORTANT: unlike `broadcast_buffers=False`, `forward_sync_buffers=False` still syncs buffers at init. If you rely on buffers NOT being synced at init (e.g. rank-local buffers), keep using `broadcast_buffers=False` until `init_sync_buffers` is available.
+  task.model = DistributedDataParallel(task.model, device_ids=[device.index] if device.type == "cuda" else None,
+/home/yikwill/paradis-spherical/trainer.py:285: FutureWarning: `broadcast_buffers` is deprecated. Use `forward_sync_buffers` instead. IMPORTANT: unlike `broadcast_buffers=False`, `forward_sync_buffers=False` still syncs buffers at init. If you rely on buffers NOT being synced at init (e.g. rank-local buffers), keep using `broadcast_buffers=False` until `init_sync_buffers` is available.
+  task.model = DistributedDataParallel(task.model, device_ids=[device.index] if device.type == "cuda" else None,
+{"step": 1, "epoch": 0, "train_loss": 0.5652361214160919, "lr": 0.0005, "elapsed_seconds": 0.467446613998618, "val_loss": 9.858201146125793}
+{"step": 2, "epoch": 1, "train_loss": 0.8215968906879425, "lr": 0.0005, "elapsed_seconds": 1.2818964649923146, "val_loss": 9.819320797920227}
+{"step": 3, "epoch": 2, "train_loss": 0.4299122095108032, "lr": 0.0, "elapsed_seconds": 2.092119630018715, "val_loss": 9.784985184669495}
+PASS: two-rank CPU DISCO, 3 steps/truncation 2, accumulation, validation, checkpoint

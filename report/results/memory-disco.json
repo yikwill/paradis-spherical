@@ -1,0 +1,7 @@
+{
+  "variant": "disco",
+  "imported_peak_rss_kib": 373148,
+  "peak_rss_kib": 1092852,
+  "compiled": true,
+  "note": "Fresh process, three training updates; total resident peak includes Python, libraries, model construction and compilation. Four CPU threads."
+}

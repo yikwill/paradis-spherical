@@ -1,0 +1,8 @@
+{
+  "optimal_constant_amplitude": 0.003798063631716427,
+  "zero_mse": 0.0019014427528871928,
+  "constant_mse": 0.001887017465536626,
+  "constant_over_zero": 0.992413504256879,
+  "zonal_mse": 0.0017772018711654527,
+  "zonal_over_zero": 0.9346596780086647
+}

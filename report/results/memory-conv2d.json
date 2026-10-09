@@ -1,0 +1,7 @@
+{
+  "variant": "conv2d",
+  "imported_peak_rss_kib": 372840,
+  "peak_rss_kib": 1073824,
+  "compiled": true,
+  "note": "Fresh process, three training updates; total resident peak includes Python, libraries, model construction and compilation. Four CPU threads."
+}

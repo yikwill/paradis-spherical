@@ -30,8 +30,9 @@ def tracer(directory):
     mean=float((target*weights).sum()/denominator)
     zero=float((target**2*weights).sum()/denominator)
     constant=float(((target-mean)**2*weights).sum()/denominator)
+    zonal=float(((target-target.mean(axis=1,keepdims=True))**2*weights).sum()/denominator)
     baselines=dict(optimal_constant_amplitude=mean,zero_mse=zero,constant_mse=constant,
-                   constant_over_zero=constant/zero)
+                   constant_over_zero=constant/zero,zonal_mse=zonal,zonal_over_zero=zonal/zero)
     (RESULTS/'tracer-baselines.json').write_text(json.dumps(baselines,indent=2)+'\n')
     for suffix in ('', '-continuation', '-continuation-identity300'):
         names = ['unet-residual'+suffix, 'paradis'+suffix]
@@ -120,7 +121,7 @@ def benchmark():
         samples=result['samples_seconds'][workload]
         names=list(samples)
         ax.boxplot([samples[n] for n in names],tick_labels=names,showfliers=True)
-        ax.set(title=workload.capitalize(),ylabel='Seconds per call')
+        ax.set(title=workload.capitalize(),ylabel='Seconds per call (log scale)',yscale='log')
         ax.grid(axis='y',alpha=.2)
         for name in names:
             upper=result['summary'][workload]['disco_over_upstream']['one_sided_95_upper'] if name=='disco' else None
@@ -128,6 +129,11 @@ def benchmark():
     fig.savefig(FIGURES/'latency.pdf')
     plt.close(fig)
     (RESULTS/'benchmark-table.tex').write_text('\n'.join(rows)+'\n')
+    setup=[f"{name} & {result['construction_seconds'][name]:.1f} & "
+           f"{result['two_warmup_calls_seconds']['inference'][name]:.1f} & "
+           f"{result['two_warmup_calls_seconds']['training'][name]:.1f} \\\\"
+           for name in ('upstream','conv2d','disco')]
+    (RESULTS/'setup-table.tex').write_text('\n'.join(setup)+'\n')
     return result
 
 
@@ -138,15 +144,22 @@ def main():
     baselines=tracer(args.tracer_dir)
     scores=weather()
     perf=benchmark()
+    warm=read('tracer-paradis-continuation-identity300.json')
     macros={
-        'WeatherRatio': f"{scores['final_loss_ratio']:.3f}",
+        'WeatherRatio': f"{scores['final_loss_ratio']:.4f}",
         'WeatherComparison': 'meets' if scores['within_descriptive_limit'] else 'does not meet',
         'InferenceBound': f"{perf['summary']['inference']['disco_over_upstream']['one_sided_95_upper']:.3f}",
         'TrainingBound': f"{perf['summary']['training']['disco_over_upstream']['one_sided_95_upper']:.3f}",
+        'InferenceControlRatio': f"{perf['summary']['inference']['disco_over_conv2d']['median_ratio']:.2f}",
+        'TrainingControlRatio': f"{perf['summary']['training']['disco_over_conv2d']['median_ratio']:.2f}",
         'SpeedGate': 'passes' if all(perf['summary'][workload]['disco_over_upstream']['no_slowdown']
                                   for workload in ('inference', 'training')) else 'fails',
         'ConstantRatio': f"{baselines['constant_over_zero']:.5f}",
+        'ZonalRatio': f"{baselines['zonal_over_zero']:.5f}",
         'ConstantAmplitude': f"{baselines['optimal_constant_amplitude']:.5f}",
+        'WarmTracerRatio': f"{warm['relative_mse']:.5f}",
+        'WarmTracerPeak': f"{warm['prediction_max']:.3f}",
+        'WarmTracerMass': f"{100*warm['relative_mass_error']:+.2f}",
     }
     data=read('data-benchmark.json')
     macros.update(DataUpstream=f"{1000*data['upstream']['median_sample_seconds']:.1f}",

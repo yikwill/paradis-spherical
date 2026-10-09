@@ -278,3 +278,58 @@ are outside the 12-hour CPU experiment budget; four GPU-hours remain reserved.
   cap after 204 updates at 46.24 degrees; final-target relative MSE is 1.09117.
   Identity-first PARADIS remains accurate around 50 degrees. Weather losses at
   1,000 updates are 0.126824 (DISCO) and 0.126639 (Conv2d).
+
+## Final-stage scheduling, 2026-10-09 03:16 UTC
+
+- Private `main` is pushed through `638d236` (forecast compilation fix).
+- Final controller is now session 98427, `/tmp/paradis-final-stage.py`, logging to
+  `/tmp/paradis-final-measurements.log`. It first waits for both weather runs and
+  evaluates their checkpoints. It then waits for all nine tracer outputs before
+  running the isolated kernel/model/data/memory measurements, figures and LaTeX.
+  This uses the remaining U-Net training time without contaminating latency tests.
+- Active training sessions: weather 77601, identity-first PARADIS 48116, and
+  identity-first residual U-Net 21030. Seven other tracer results are complete.
+- At 1,400 updates, DISCO/Conv2d validation ratio is 0.98665. PARADIS's identity
+  diagnostic is around 62 degrees with low loss. Final endpoints remain pending.
+
+## Completed bounded CPU reproduction, 2026-10-09
+
+- All nine tracer attempts and both 2,000-update weather fits are complete.
+  The no-warmup PARADIS ramp stopped at its predeclared time cap after 204
+  updates (46.24 degrees); its failed final-target result is retained.
+- Fixed-target PARADIS relative MSE is 0.93464, essentially the optimal zonal
+  baseline. Identity warmup followed by angular continuation reaches 0.00232
+  relative MSE at the full 68-degree target, with peak 0.98867 and signed mass
+  error +8.61%. Both U-Net constructions remain near the constant baseline.
+  The modified curriculum result is not an exact paper-protocol reproduction.
+- Weather final losses: Conv2d 0.11407607, DISCO 0.11402098, ratio 0.999517.
+  This meets the predeclared descriptive 1.10 limit, without a statistical
+  equivalence claim. Re-evaluating the checkpoints with the folded kernel
+  changes aggregate loss by less than 7e-10. Both beat persistence for 500-hPa
+  geopotential but not 2-m temperature at six hours.
+- Final interleaved measurements ran after all our training jobs finished.
+  DISCO/upstream median ratios: inference 0.51465, training 0.66831; one-sided
+  95% bootstrap upper bounds 0.89730 and 0.81504. Both meet the agreed gate.
+  Timing variability is substantial; all 20 samples and outliers are retained.
+  Neither comparison against optimized Conv2d passes the same strict bound.
+- The folded 121x240 C64 kernel is 1.83x faster than its first direct version
+  in the final layer benchmark. Preloaded sample access is 1.50x faster with
+  exactly matching dynamic/forcing values. These are separate measurements,
+  not factors to multiply into a whole-model speedup.
+- The budget ledger records a conservative 3.75-hour interval, rounded outward
+  to include setup, checks, all overlapping experiments, final measurements,
+  and the initial report build. This is below the 12-hour wall-time budget.
+  GPU usage is zero; four hours remain reserved for supported hardware.
+- Existing port, data/loss, operator/model, fit/resume, compiled forecast,
+  weather metrics, and two-rank CPU regressions passed. The final forecast
+  regression fails on the old implementation and passes after the fix.
+  Its log and the final distributed/measurement logs are now preserved under
+  report/results/ rather than relying only on temporary files.
+- The nine-page PDF was built and its plots/tables visually inspected. The
+  report includes fixed-target failures, curriculum assumptions, raw timing
+  uncertainty, physical weather metrics, the pooling/pole limitation, training
+  versus final-kernel revisions, and remaining GPU/full-scale limitations.
+  Final source/result consistency checks passed (report/results/final-audit.json),
+  including unchanged measured-source hashes, all nine tracer histories, both
+  2,000-update weather endpoints, and a warning-free PDF build. All local
+  deliverables are complete; no additional model experiments are scheduled.

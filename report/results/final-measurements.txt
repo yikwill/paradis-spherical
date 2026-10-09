@@ -1,0 +1,682 @@
+Waiting for paired weather results before checkpoint evaluation.
+START checkpoint evaluation 2026-10-09T03:41:23Z
+conv2d {'rmse': [167.87148648729635, 3.173668452544382], 'persistence_rmse': [236.51771524914014, 2.536346748014372], 'windows': 122, 'aggregate_loss': 0.11407606963251458, 'logged_validation_loss': 0.11407607030428824, 'aggregate_abs_difference': 6.717736505956751e-10}
+disco {'rmse': [170.13676045243983, 3.1289213090093155], 'persistence_rmse': [236.51771524914014, 2.536346748014372], 'windows': 122, 'aggregate_loss': 0.1140209757035873, 'logged_validation_loss': 0.1140209753371653, 'aggregate_abs_difference': 3.664219899723875e-10}
+DONE checkpoint evaluation
+Waiting for all paired weather and nine tracer results before isolated measurements.
+START ['experiments.tune_grouped'] 2026-10-09T03:51:31Z
+{"shape": [2, 3, 17, 32], "kernel": 3, "dtype": "torch.float64", "seed": 42, "old_and_folded_seconds": [[0.030387553037144244, 0.033726096036843956, 0.033556173963006586, 0.03162285900907591, 0.03369363700039685, 0.030523704015649855, 0.030355926021002233, 0.03610071400180459, 0.030773953010793775, 0.03119044902268797, 0.030645130027551204, 0.03636380395619199, 0.04049524699803442, 0.03257676801877096, 0.030780241009779274, 0.03050756099401042, 0.031131941999774426], [0.03630626102676615, 0.03128657198976725, 0.03140830300981179, 0.03080551599850878, 0.030912838992662728, 0.030682269018143415, 0.03069514798698947, 0.0313540649949573, 0.0343289949814789, 0.030862739018630236, 0.03081070096231997, 0.05224379803985357, 0.035845640988554806, 0.025047404982615262, 0.031201757956296206, 0.03507061704294756, 0.03138159296941012]], "output_inputgrad_weightgrad_errors": [8.881784197001252e-16, 1.3322676295501878e-15, 0.0], "median_speedup": 0.9969276606235186}
+{"shape": [1, 32, 61, 120], "kernel": 5, "dtype": "torch.float32", "seed": 42, "old_and_folded_seconds": [[0.09129462903365493, 0.08552765700733289, 0.08541199896717444, 0.08897183299995959, 0.0960996380308643, 0.0793155959690921, 0.08619122899835929, 0.08447277394589037, 0.08032196597196162, 0.07603893801569939, 0.09621477796463296, 0.08779520797543228, 0.10489725600928068, 0.08457039797212929, 0.07905258797109127, 0.09595181001350284, 0.09016320103546605], [0.08018372498918325, 0.07437084103003144, 0.0876265270053409, 0.08443775400519371, 0.09083633602131158, 0.07854645495535806, 0.0799593499978073, 0.09971142903668806, 0.08208599797217175, 0.08715831500012428, 0.08675639901775867, 0.0694984489819035, 0.07843283499823883, 0.08206668798811734, 0.07213490299182013, 0.09765282104490325, 0.10035605396842584]], "output_inputgrad_weightgrad_errors": [2.5033950805664062e-06, 1.430511474609375e-06, 0.0], "median_speedup": 1.0500113433180074}
+{"shape": [1, 64, 121, 240], "kernel": 7, "dtype": "torch.float32", "seed": 42, "old_and_folded_seconds": [[0.3301514740451239, 0.3348805910209194, 0.30928872199729085, 0.3217316140071489, 0.36642327305162326, 0.3122851130319759, 0.3600334540242329, 0.3313552140025422, 0.4163900119601749, 0.39749579201452434, 0.4039581730030477, 0.36428835801780224, 0.33425484999315813, 0.30866972799412906, 0.29357508599059656, 0.35139544296544045, 0.34187206701608375], [0.2065557650057599, 0.200956559041515, 0.19334074400831014, 0.17827811400638893, 0.1683008210384287, 0.1896339799859561, 0.16883074498036876, 0.17566239804727957, 0.17596586199942976, 0.22513961303047836, 0.2536618969752453, 0.2763103659963235, 0.2053629260044545, 0.1728666740236804, 0.18340696004452184, 0.17507438396569341, 0.18198762298561633]], "output_inputgrad_weightgrad_errors": [3.337860107421875e-06, 4.291534423828125e-06, 0.0], "median_speedup": 1.825888128452854}
+DONE ['experiments.tune_grouped']
+START ['experiments.benchmark', '--compile', '--repeats', '20', '--profile'] 2026-10-09T03:52:56Z
+inference disco 0 0.2309s
+inference conv2d 0 0.0698s
+inference upstream 0 0.1252s
+inference upstream 1 0.1236s
+inference disco 1 0.1167s
+inference conv2d 1 0.0539s
+inference conv2d 2 0.0515s
+inference disco 2 0.1000s
+inference upstream 2 0.1030s
+inference disco 3 0.0984s
+inference upstream 3 0.1084s
+inference conv2d 3 0.0548s
+inference disco 4 0.1091s
+inference upstream 4 3.9510s
+inference conv2d 4 2.5198s
+inference upstream 5 6.0032s
+inference disco 5 2.3538s
+inference conv2d 5 0.3070s
+inference disco 6 2.0842s
+inference conv2d 6 2.5443s
+inference upstream 6 5.9757s
+inference conv2d 7 2.6300s
+inference upstream 7 5.9834s
+inference disco 7 3.1434s
+inference upstream 8 5.5964s
+inference disco 8 1.6321s
+inference conv2d 8 1.4886s
+inference conv2d 9 2.4343s
+inference upstream 9 5.9906s
+inference disco 9 3.2123s
+inference disco 10 3.1523s
+inference upstream 10 6.0502s
+inference conv2d 10 2.4426s
+inference upstream 11 5.9989s
+inference disco 11 3.1129s
+inference conv2d 11 2.1329s
+inference conv2d 12 0.9255s
+inference upstream 12 6.0178s
+inference disco 12 0.7219s
+inference conv2d 13 0.3577s
+inference upstream 13 1.4458s
+inference disco 13 0.8942s
+inference conv2d 14 0.5343s
+inference upstream 14 0.8103s
+inference disco 14 1.3647s
+inference conv2d 15 0.3780s
+inference disco 15 1.2362s
+inference upstream 15 0.8767s
+inference upstream 16 1.2211s
+inference disco 16 0.8465s
+inference conv2d 16 0.6236s
+inference upstream 17 1.5342s
+inference conv2d 17 0.4711s
+inference disco 17 1.0227s
+inference disco 18 1.0038s
+inference upstream 18 2.4033s
+inference conv2d 18 0.3940s
+inference disco 19 0.6120s
+inference conv2d 19 0.5647s
+inference upstream 19 1.1710s
+training conv2d 0 3.1986s
+training disco 0 3.3809s
+training upstream 0 4.4765s
+training upstream 1 4.0070s
+training disco 1 2.8968s
+training conv2d 1 2.7467s
+training conv2d 2 3.1048s
+training disco 2 2.4758s
+training upstream 2 4.3500s
+training conv2d 3 3.3288s
+training disco 3 3.3400s
+training upstream 3 3.3581s
+training upstream 4 4.2699s
+training conv2d 4 2.9146s
+training disco 4 2.8944s
+training upstream 5 5.7822s
+training conv2d 5 2.5921s
+training disco 5 2.4175s
+training disco 6 2.3845s
+training upstream 6 3.7607s
+training conv2d 6 2.8736s
+training conv2d 7 3.0763s
+training upstream 7 3.7144s
+training disco 7 2.9328s
+training disco 8 2.4683s
+training conv2d 8 3.3011s
+training upstream 8 3.3996s
+training disco 9 3.0022s
+training conv2d 9 3.1279s
+training upstream 9 3.6835s
+training upstream 10 3.7985s
+training disco 10 3.4298s
+training conv2d 10 2.5530s
+training disco 11 3.2579s
+training upstream 11 3.0476s
+training conv2d 11 2.7538s
+training upstream 12 3.5048s
+training conv2d 12 1.7897s
+training disco 12 0.3364s
+training disco 13 0.3338s
+training conv2d 13 0.2972s
+training upstream 13 0.3589s
+training upstream 14 0.3619s
+training disco 14 0.3405s
+training conv2d 14 0.2946s
+training conv2d 15 0.2850s
+training disco 15 0.3718s
+training upstream 15 0.3592s
+training conv2d 16 0.2851s
+training disco 16 0.3352s
+training upstream 16 0.3660s
+training disco 17 0.3329s
+training upstream 17 0.3556s
+training conv2d 17 0.2872s
+training disco 18 0.3666s
+training conv2d 18 0.6084s
+training upstream 18 9.9246s
+training upstream 19 35.6677s
+training disco 19 9.6789s
+training conv2d 19 4.7981s
+USDT:2026-10-08 21:06:59 98:98 SyncActivityProfilerHandler.cpp:39] profiler_start
+[W1008 21:06:59.980414397 CPUAllocator.cpp:245] Memory block of unknown size was allocated before the profiling started, profiler results will not include the deallocation event
+USDT:2026-10-08 21:07:04 98:98 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-10-08 21:07:07 98:98 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-10-08 21:07:10 98:98 SyncActivityProfilerHandler.cpp:46] profiler_stop
+USDT:2026-10-08 21:07:10 98:98 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-10-08 21:07:14 98:98 SyncActivityProfilerHandler.cpp:46] profiler_stop
+{
+  "inference": {
+    "upstream": 1.9687643420184031,
+    "conv2d": 0.5494949079875369,
+    "disco": 1.013217199506471,
+    "disco_over_upstream": {
+      "median_ratio": 0.514646256985591,
+      "bootstrap_95_interval": [
+        0.1827001463786095,
+        0.9927770105253407
+      ],
+      "one_sided_95_upper": 0.8972993217298649,
+      "no_slowdown": true
+    },
+    "disco_over_conv2d": {
+      "median_ratio": 1.843906439856312,
+      "bootstrap_95_interval": [
+        0.7419867017355866,
+        3.0538258588002027
+      ],
+      "one_sided_95_upper": 2.804335179260179,
+      "no_slowdown": false
+    }
+  },
+  "training": {
+    "upstream": 3.6989448805106804,
+    "conv2d": 2.750264809001237,
+    "disco": 2.4720530254999176,
+    "disco_over_upstream": {
+      "median_ratio": 0.6683130204304703,
+      "bootstrap_95_interval": [
+        0.10684808253658587,
+        0.8443413393696052
+      ],
+      "one_sided_95_upper": 0.8150432855488674,
+      "no_slowdown": true
+    },
+    "disco_over_conv2d": {
+      "median_ratio": 0.8988418196710474,
+      "bootstrap_95_interval": [
+        0.3079237820953693,
+        1.0927466137675241
+      ],
+      "one_sided_95_upper": 1.0598329320786208,
+      "no_slowdown": false
+    }
+  }
+}
+DONE ['experiments.benchmark', '--compile', '--repeats', '20', '--profile']
+START ['experiments.benchmark_data'] 2026-10-09T04:07:20Z
+/home/yikwill/paradis-upstream/data/era5_dataset.py:69: UserWarning: The specified chunks separate the stored chunks along dimension "time" starting at index 1. This could degrade performance. Instead, consider rechunking after loading.
+  ds = xarray.open_mfdataset(
+{
+  "upstream": {
+    "setup_seconds": 31.1080973080243,
+    "sample_seconds": [
+      0.40315308299614117,
+      0.4213980070198886,
+      0.4197631329880096,
+      0.3817197270109318,
+      0.4068040090496652,
+      0.390216015977785,
+      0.41496271098731086,
+      0.3898925169487484,
+      0.37582978804130107,
+      0.3937329859472811,
+      0.4294955210061744,
+      0.3965313149965368,
+      0.4029235160560347,
+      0.40450693300226703,
+      0.43542618304491043,
+      0.28530226898146793,
+      0.43449377099750564,
+      0.3771431360510178,
+      0.38082869799109176,
+      0.17915304499911144,
+      0.394961828016676,
+      0.3906551619875245,
+      0.3690010290010832,
+      0.41418755700578913,
+      0.3955490830121562,
+      0.3874812890426256,
+      0.37149410299025476,
+      0.387392278003972,
+      0.18995987897505984,
+      0.20411127002444118,
+      0.4118838550057262,
+      0.39066342799924314,
+      0.18299914500676095,
+      0.4061002869857475,
+      0.3799348579486832,
+      0.40213332197163254,
+      0.39204394799889997,
+      0.4120991890085861,
+      0.39443071302957833,
+      0.37238950602477416
+    ],
+    "median_sample_seconds": 0.39135368799907155
+  },
+  "optimized": {
+    "setup_seconds": 8.179756753030233,
+    "sample_seconds": [
+      0.26127790997270495,
+      0.25819123501423746,
+      0.2671556640416384,
+      0.2625694409944117,
+      0.26276171597419307,
+      0.2707632479723543,
+      0.2719929000013508,
+      0.25642196799162775,
+      0.25716809899313375,
+      0.25198556698160246,
+      0.2886675159679726,
+      0.2522180210216902,
+      0.2752283659647219,
+      0.2572095029754564,
+      0.2563526550075039,
+      0.14939096599118784,
+      0.28428374900249764,
+      0.26451622403692454,
+      0.30091598903527483,
+      0.18287960201269016,
+      0.28090675902785733,
+      0.2806320420349948,
+      0.25739305798197165,
+      0.24998818099265918,
+      0.25631567800883204,
+      0.25245145603548735,
+      0.25563898199470714,
+      0.2616395030054264,
+      0.15637276595225558,
+      0.1813276629545726,
+      0.29621378297451884,
+      0.35889236198272556,
+      0.14376884698867798,
+      0.2500271050375886,
+      0.2658162530278787,
+      0.2684595520258881,
+      0.2584668429917656,
+      0.247904073970858,
+      0.2945125490077771,
+      0.2782157650217414
+    ],
+    "median_sample_seconds": 0.260053172998596
+  },
+  "dynamic_and_forcing_max_abs_error": 0.0,
+  "combined_peak_rss_kib": 7379896,
+  "note": "Preloaded January 2017, 121x240, full features, four CPU threads; first two samples excluded from medians. Setup includes disk reads; filesystem cache is uncontrolled. Constants differ by design."
+}
+DONE ['experiments.benchmark_data']
+START ['experiments.memory', 'upstream', '--compile'] 2026-10-09T04:09:17Z
+{
+  "variant": "upstream",
+  "imported_peak_rss_kib": 372724,
+  "peak_rss_kib": 1219536,
+  "compiled": false,
+  "note": "Fresh process, three training updates; total resident peak includes Python, libraries, model construction and compilation. Four CPU threads."
+}
+DONE ['experiments.memory', 'upstream', '--compile']
+START ['experiments.memory', 'conv2d', '--compile'] 2026-10-09T04:09:42Z
+{
+  "variant": "conv2d",
+  "imported_peak_rss_kib": 372840,
+  "peak_rss_kib": 1073824,
+  "compiled": true,
+  "note": "Fresh process, three training updates; total resident peak includes Python, libraries, model construction and compilation. Four CPU threads."
+}
+DONE ['experiments.memory', 'conv2d', '--compile']
+START ['experiments.memory', 'disco', '--compile'] 2026-10-09T04:10:11Z
+{
+  "variant": "disco",
+  "imported_peak_rss_kib": 373148,
+  "peak_rss_kib": 1092852,
+  "compiled": true,
+  "note": "Fresh process, three training updates; total resident peak includes Python, libraries, model construction and compilation. Four CPU threads."
+}
+DONE ['experiments.memory', 'disco', '--compile']
+Latexmk: This is Latexmk, John Collins, 18 June 2019, version: 4.65.
+Rule 'pdflatex': The following rules & subrules became out-of-date:
+      'pdflatex'
+------------
+Run number 1 of rule 'pdflatex'
+------------
+------------
+Running 'pdflatex  -interaction=nonstopmode -halt-on-error -recorder  "report.tex"'
+------------
+Latexmk: applying rule 'pdflatex'...
+This is pdfTeX, Version 3.14159265-2.6-1.40.19 (TeX Live 2018) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+
+kpathsea: Running mktexfmt pdflatex.fmt
+mktexfmt: mktexfmt is using the following fmtutil.cnf files (in precedence order):
+mktexfmt:   /usr/share/texlive/texmf-dist/web2c/fmtutil.cnf
+mktexfmt: mktexfmt is using the following fmtutil.cnf file for writing changes:
+mktexfmt:   /home/yikwill/.texlive2018/texmf-config/web2c/fmtutil.cnf
+mktexfmt [WARNING]: double mention of mf/mf-nowin in /usr/share/texlive/texmf-dist/web2c/fmtutil.cnf
+mktexfmt [WARNING]: double mention of tex/tex in /usr/share/texlive/texmf-dist/web2c/fmtutil.cnf
+mktexfmt [INFO]: writing formats under /home/yikwill/.texlive2018/texmf-var/web2c
+mktexfmt [INFO]: --- remaking pdflatex with pdftex
+mktexfmt: running `pdftex -ini   -jobname=pdflatex -progname=pdflatex -translate-file=cp227.tcx *pdflatex.ini' ...
+This is pdfTeX, Version 3.14159265-2.6-1.40.19 (TeX Live 2018) (INITEX)
+ restricted \write18 enabled.
+ (/usr/share/texlive/texmf-dist/web2c/cp227.tcx)
+entering extended mode
+(/usr/share/texlive/texmf-dist/tex/latex/latexconfig/pdflatex.ini
+(/usr/share/texlive/texmf-dist/tex/generic/tex-ini-files/pdftexconfig.tex)
+(/usr/share/texlive/texmf-dist/tex/latex/base/latex.ltx
+(/usr/share/texlive/texmf-dist/tex/latex/base/texsys.cfg)
+./texsys.aux found
+
+
+\@currdir set to: ./.
+
+
+Assuming \openin and \input
+have the same search path.
+
+
+Defining UNIX/DOS style filename parser.
+
+catcodes, registers, parameters,
+LaTeX2e <2017-04-15>
+hacks, control, par, spacing, files, font encodings, lengths,
+====================================
+
+Local config file fonttext.cfg used
+
+====================================
+(/usr/share/texlive/texmf-dist/tex/latex/base/fonttext.cfg
+(/usr/share/texlive/texmf-dist/tex/latex/base/fonttext.ltx
+=== Don't modify this file, use a .cfg file instead ===
+
+(/usr/share/texlive/texmf-dist/tex/latex/base/omlenc.def)
+(/usr/share/texlive/texmf-dist/tex/latex/base/t1enc.def)
+(/usr/share/texlive/texmf-dist/tex/latex/base/ot1enc.def)
+(/usr/share/texlive/texmf-dist/tex/latex/base/omsenc.def)
+(/usr/share/texlive/texmf-dist/tex/latex/base/t1cmr.fd)
+(/usr/share/texlive/texmf-dist/tex/latex/base/ot1cmr.fd)
+(/usr/share/texlive/texmf-dist/tex/latex/base/ot1cmss.fd)
+(/usr/share/texlive/texmf-dist/tex/latex/base/ot1cmtt.fd)))
+====================================
+
+Local config file fontmath.cfg used
+
+====================================
+(/usr/share/texlive/texmf-dist/tex/latex/base/fontmath.cfg
+(/usr/share/texlive/texmf-dist/tex/latex/base/fontmath.ltx
+=== Don't modify this file, use a .cfg file instead ===
+
+(/usr/share/texlive/texmf-dist/tex/latex/base/omlcmm.fd)
+(/usr/share/texlive/texmf-dist/tex/latex/base/omscmsy.fd)
+(/usr/share/texlive/texmf-dist/tex/latex/base/omxcmex.fd)
+(/usr/share/texlive/texmf-dist/tex/latex/base/ucmr.fd)))
+====================================
+
+Local config file preload.cfg used
+
+=====================================
+(/usr/share/texlive/texmf-dist/tex/latex/base/preload.cfg
+(/usr/share/texlive/texmf-dist/tex/latex/base/preload.ltx)) page nos., x-ref,
+environments, center, verbatim, math definitions, boxes, title, sectioning,
+contents, floats, footnotes, index, bibliography, output,
+===========================================
+Local configuration file hyphen.cfg used
+===========================================
+(/usr/share/texlive/texmf-dist/tex/generic/babel/hyphen.cfg
+(/usr/share/texlive/texmf-dist/tex/generic/babel/switch.def)
+(/usr/share/texlive/texmf-dist/tex/generic/hyphen/hyphen.tex)
+(/usr/share/texlive/texmf-dist/tex/generic/hyphen/dumyhyph.tex)
+(/usr/share/texlive/texmf-dist/tex/generic/hyphen/zerohyph.tex))
+ ) )
+Beginning to dump on file pdflatex.fmt
+ (preloaded format=pdflatex 2026.10.8)
+5083 strings of total length 69301
+44966 memory locations dumped; current usage is 144&44370
+3423 multiletter control sequences
+\font\nullfont=nullfont
+\font\OMX/cmex/m/n/10=cmex10
+\font\tenln=line10
+\font\tenlnw=linew10
+\font\tencirc=lcircle10
+\font\tencircw=lcirclew10
+\font\OT1/cmr/m/n/5=cmr5
+\font\OT1/cmr/m/n/7=cmr7
+\font\OT1/cmr/m/n/10=cmr10
+\font\OML/cmm/m/it/5=cmmi5
+\font\OML/cmm/m/it/7=cmmi7
+\font\OML/cmm/m/it/10=cmmi10
+\font\OMS/cmsy/m/n/5=cmsy5
+\font\OMS/cmsy/m/n/7=cmsy7
+\font\OMS/cmsy/m/n/10=cmsy10
+3633 words of font info for 14 preloaded fonts
+14 hyphenation exceptions
+Hyphenation trie of length 6081 has 183 ops out of 35111
+  2 for language 1
+  181 for language 0
+0 words of pdfTeX memory
+0 indirect objects
+No pages of output.
+Transcript written on pdflatex.log.
+mktexfmt [INFO]: /home/yikwill/.texlive2018/texmf-var/web2c/pdftex/pdflatex.fmt installed.
+mktexfmt [INFO]: Disabled formats: 32
+mktexfmt [INFO]: Successfully rebuilt formats: 1
+mktexfmt [INFO]: Not selected formats: 15
+mktexfmt [INFO]: Total formats: 48
+mktexfmt [INFO]: exiting with status 0
+entering extended mode
+(./report.tex
+LaTeX2e <2017-04-15>
+Babel <3.17> and hyphenation patterns for 3 language(s) loaded.
+(/usr/share/texlive/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2014/09/29 v1.4h Standard LaTeX document class
+(/usr/share/texlive/texmf-dist/tex/latex/base/size10.clo))
+(/usr/share/texlive/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/ifpdf.sty)
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/ifvtex.sty)
+(/usr/share/texlive/texmf-dist/tex/generic/ifxetex/ifxetex.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/hobsub-hyperref.sty
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/hobsub-generic.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/oberdiek/auxhook.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/oberdiek/kvoptions.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/share/texlive/texmf-dist/tex/latex/latexconfig/hyperref.cfg)
+(/usr/share/texlive/texmf-dist/tex/latex/url/url.sty))
+
+Package hyperref Message: Driver (autodetected): hpdftex.
+
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/share/texlive/texmf-dist/tex/latex/oberdiek/rerunfilecheck.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/color.cfg))
+(/usr/share/texlive/texmf-dist/tex/latex/enumitem/enumitem.sty)
+(./results/numbers.tex) (./report.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/share/texlive/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/share/texlive/texmf-dist/tex/latex/oberdiek/epstopdf-base.sty
+(/usr/share/texlive/texmf-dist/tex/latex/oberdiek/grfext.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/gettitlestring.sty))
+
+LaTeX Warning: Citation `paradis' on page 1 undefined on input line 34.
+
+
+Overfull \hbox (21.39691pt too wide) in paragraph at lines 39--46
+[]\OT1/cmr/m/n/10 The com-plete up-stream repos-i-tory and his-tory are re-tain
+ed at com-mit \OT1/cmtt/m/n/10 9a6f4b7d0dadfb80918ff8929bd92b6a5da2bcc5\OT1/cmr
+/m/n/10 .
+[1{/usr/share/texlive/texmf-dist/fonts/map/pdftex/updmap/pdftex.map}]
+
+LaTeX Warning: Citation `harmonics' on page 2 undefined on input line 104.
+
+
+LaTeX Warning: Citation `disco' on page 2 undefined on input line 104.
+
+[2] (./results/kernel-table.tex) [3] (./results/tracer-table.tex)
+
+LaTeX Warning: Citation `wb2' on page 4 undefined on input line 256.
+
+(./results/weather-table.tex) (./results/weather-physical-table.tex) [4]
+[5 <./figures/tracer.pdf>] (./results/benchmark-table.tex)
+(./results/setup-table.tex) [6 <./figures/tracer-learning.pdf>] [7 <./figures/t
+racer-continuation-identity300.pdf>] (./results/memory-table.tex) [8 <./figures
+/weather-learning.pdf>]
+Underfull \hbox (badness 10000) in paragraph at lines 436--438
+[]\OT1/cmr/m/n/10 NVIDIA. \OT1/cmr/m/it/10 torch-harmonics\OT1/cmr/m/n/10 , pin
+ned source re-vi-sion listed above. [][]$\OT1/cmtt/m/n/10 https : / / github .
+com / NVIDIA /
+
+Underfull \hbox (badness 7451) in paragraph at lines 441--443
+[]\OT1/cmr/m/n/10 Google Re-search. \OT1/cmr/m/it/10 Weath-er-Bench 2 datasets\
+OT1/cmr/m/n/10 . [][]$\OT1/cmtt/m/n/10 https : / / weatherbench2 . readthedocs
+. io / en / latest /
+[9 <./figures/latency.pdf>] (./report.aux)
+
+Package rerunfilecheck Warning: File `report.out' has changed.
+(rerunfilecheck)                Rerun to get outlines right
+(rerunfilecheck)                or use package `bookmark'.
+
+
+LaTeX Warning: There were undefined references.
+
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+ )
+(see the transcript file for additional information)</usr/share/texlive/texmf-d
+ist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/texmf-dist/fo
+nts/type1/public/amsfonts/cm/cmbx12.pfb></usr/share/texlive/texmf-dist/fonts/ty
+pe1/public/amsfonts/cm/cmbx9.pfb></usr/share/texlive/texmf-dist/fonts/type1/pub
+lic/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts
+/cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmm
+i9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb>
+</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/s
+hare/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/share/te
+xlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/share/texlive/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/share/texlive/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/share/texlive/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/p
+ublic/amsfonts/cm/cmsy6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/a
+msfonts/cm/cmsy7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts
+/cm/cmsy9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmt
+i10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pf
+b></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt12.pfb>
+Output written on report.pdf (9 pages, 509712 bytes).
+Transcript written on report.log.
+Latexmk: References changed.
+Latexmk: References changed.
+Latexmk: Log file says output to 'report.pdf'
+Latexmk: List of undefined refs and citations:
+  Citation `disco' on page 2 undefined on input line 104
+  Citation `harmonics' on page 2 undefined on input line 104
+  Citation `paradis' on page 1 undefined on input line 34
+  Citation `wb2' on page 4 undefined on input line 256
+Rule 'pdflatex': File changes, etc:
+   Changed files, or newly in use since previous run(s):
+      'report.aux'
+      'report.out'
+------------
+Run number 2 of rule 'pdflatex'
+------------
+------------
+Running 'pdflatex  -interaction=nonstopmode -halt-on-error -recorder  "report.tex"'
+------------
+=== TeX engine is 'pdfTeX'
+Latexmk: applying rule 'pdflatex'...
+This is pdfTeX, Version 3.14159265-2.6-1.40.19 (TeX Live 2018) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./report.tex
+LaTeX2e <2017-04-15>
+Babel <3.17> and hyphenation patterns for 3 language(s) loaded.
+(/usr/share/texlive/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2014/09/29 v1.4h Standard LaTeX document class
+(/usr/share/texlive/texmf-dist/tex/latex/base/size10.clo))
+(/usr/share/texlive/texmf-dist/tex/latex/geometry/geometry.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/keyval.sty)
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/ifpdf.sty)
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/ifvtex.sty)
+(/usr/share/texlive/texmf-dist/tex/generic/ifxetex/ifxetex.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsmath.sty
+For additional information on amsmath, use the `?' option.
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amstext.sty
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsgen.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsbsy.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsopn.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/booktabs/booktabs.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphicx.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphics.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/trig.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/graphics.cfg)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-def/pdftex.def)))
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hyperref.sty
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/hobsub-hyperref.sty
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/hobsub-generic.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/oberdiek/auxhook.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/oberdiek/kvoptions.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/pd1enc.def)
+(/usr/share/texlive/texmf-dist/tex/latex/latexconfig/hyperref.cfg)
+(/usr/share/texlive/texmf-dist/tex/latex/url/url.sty))
+
+Package hyperref Message: Driver (autodetected): hpdftex.
+
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hpdftex.def
+(/usr/share/texlive/texmf-dist/tex/latex/oberdiek/rerunfilecheck.sty))
+(/usr/share/texlive/texmf-dist/tex/latex/xcolor/xcolor.sty
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/color.cfg))
+(/usr/share/texlive/texmf-dist/tex/latex/enumitem/enumitem.sty)
+(./results/numbers.tex) (./report.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+(/usr/share/texlive/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+) (/usr/share/texlive/texmf-dist/tex/latex/oberdiek/epstopdf-base.sty
+(/usr/share/texlive/texmf-dist/tex/latex/oberdiek/grfext.sty)
+(/usr/share/texlive/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg))
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/nameref.sty
+(/usr/share/texlive/texmf-dist/tex/generic/oberdiek/gettitlestring.sty))
+(./report.out) (./report.out)
+Overfull \hbox (21.39691pt too wide) in paragraph at lines 39--46
+[]\OT1/cmr/m/n/10 The com-plete up-stream repos-i-tory and his-tory are re-tain
+ed at com-mit \OT1/cmtt/m/n/10 9a6f4b7d0dadfb80918ff8929bd92b6a5da2bcc5\OT1/cmr
+/m/n/10 .
+[1{/usr/share/texlive/texmf-dist/fonts/map/pdftex/updmap/pdftex.map}] [2]
+(./results/kernel-table.tex) [3] (./results/tracer-table.tex)
+(./results/weather-table.tex) (./results/weather-physical-table.tex) [4]
+[5 <./figures/tracer.pdf>] (./results/benchmark-table.tex)
+(./results/setup-table.tex) [6 <./figures/tracer-learning.pdf>] [7 <./figures/t
+racer-continuation-identity300.pdf>] (./results/memory-table.tex) [8 <./figures
+/weather-learning.pdf>]
+Underfull \hbox (badness 10000) in paragraph at lines 436--438
+[]\OT1/cmr/m/n/10 NVIDIA. \OT1/cmr/m/it/10 torch-harmonics\OT1/cmr/m/n/10 , pin
+ned source re-vi-sion listed above. [][]$\OT1/cmtt/m/n/10 https : / / github .
+com / NVIDIA /
+
+Underfull \hbox (badness 7451) in paragraph at lines 441--443
+[]\OT1/cmr/m/n/10 Google Re-search. \OT1/cmr/m/it/10 Weath-er-Bench 2 datasets\
+OT1/cmr/m/n/10 . [][]$\OT1/cmtt/m/n/10 https : / / weatherbench2 . readthedocs
+. io / en / latest /
+[9 <./figures/latency.pdf>] (./report.aux) )
+(see the transcript file for additional information)</usr/share/texlive/texmf-d
+ist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/share/texlive/texmf-dist/fo
+nts/type1/public/amsfonts/cm/cmbx9.pfb></usr/share/texlive/texmf-dist/fonts/typ
+e1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/type1/pub
+lic/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/
+cm/cmmi9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr1
+0.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb><
+/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/sh
+are/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/share/texl
+ive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/share/texlive/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/share/texlive/texmf-dist/f
+onts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmsy6.pfb></usr/share/texlive/texmf-dist/fonts/type1/pu
+blic/amsfonts/cm/cmsy7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmsy9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/
+cm/cmti10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmt
+t10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt12.pf
+b>
+Output written on report.pdf (9 pages, 502154 bytes).
+Transcript written on report.log.
+Latexmk: Log file says output to 'report.pdf'
+=== TeX engine is 'pdfTeX'
+Latexmk: All targets () are up-to-date
+Final measurements and report generation complete; inspection still required.
+warning  libmamba Failed to remove file '/home/yikwill/.cache/mamba/proc/39.json' : Success

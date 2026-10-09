@@ -1,0 +1,42 @@
+{
+  "checkpoint": "last",
+  "lead_hours": 6,
+  "fields": [
+    "geopotential_h500",
+    "2m_temperature"
+  ],
+  "units": [
+    "m2 s-2",
+    "K"
+  ],
+  "scores": {
+    "conv2d": {
+      "rmse": [
+        167.87148648729635,
+        3.173668452544382
+      ],
+      "persistence_rmse": [
+        236.51771524914014,
+        2.536346748014372
+      ],
+      "windows": 122,
+      "aggregate_loss": 0.11407606963251458,
+      "logged_validation_loss": 0.11407607030428824,
+      "aggregate_abs_difference": 6.717736505956751e-10
+    },
+    "disco": {
+      "rmse": [
+        170.13676045243983,
+        3.1289213090093155
+      ],
+      "persistence_rmse": [
+        236.51771524914014,
+        2.536346748014372
+      ],
+      "windows": 122,
+      "aggregate_loss": 0.1140209757035873,
+      "logged_validation_loss": 0.1140209753371653,
+      "aggregate_abs_difference": 3.664219899723875e-10
+    }
+  }
+}
